@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NCAA Basketball Betting Model</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#0f1923;color:#c7d5e0;min-height:100vh;
+  }
+
+  /* Header */
+  .header{
+    background:linear-gradient(135deg,#1a2a3a 0%,#0f1923 100%);
+    border-bottom:2px solid #1e3a5f;padding:1.2rem 2rem;
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.8rem;
+  }
+  .header h1{font-size:1.4rem;color:#fff;letter-spacing:.5px}
+  .header h1 span{color:#00d4aa}
+  .header .subtitle{font-size:.8rem;color:#6b8399}
+
+  /* Tabs */
+  .tabs{display:flex;gap:0;margin:1.5rem 2rem .5rem}
+  .tab{
+    padding:.7rem 1.8rem;background:#162433;border:1px solid #1e3a5f;
+    color:#6b8399;cursor:pointer;font-size:.85rem;font-weight:600;
+    transition:all .2s;border-bottom:2px solid transparent;
+  }
+  .tab:first-child{border-radius:8px 0 0 8px}
+  .tab:last-child{border-radius:0 8px 8px 0}
+  .tab.active{background:#1a2f42;color:#00d4aa;border-bottom-color:#00d4aa}
+  .tab:hover:not(.active){background:#1a2a3a;color:#8ba4b8}
+
+  /* Panels */
+  .panel{display:none;padding:1rem 2rem 2rem}
+  .panel.active{display:block}
+
+  /* Spinner */
+  .spinner-wrap{text-align:center;padding:4rem 0}
+  .spinner{
+    width:48px;height:48px;border:4px solid #1e3a5f;border-top-color:#00d4aa;
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 1rem;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spinner-wrap p{color:#6b8399;font-size:.9rem}
+
+  /* Section headings */
+  .section-title{
+    font-size:1.05rem;color:#fff;margin:1.5rem 0 1rem;
+    padding-bottom:.4rem;border-bottom:1px solid #1e3a5f;
+    display:flex;align-items:center;justify-content:space-between;
+  }
+  .section-title span{color:#00d4aa}
+
+  /* Card grid */
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:1rem}
+
+  /* Game card */
+  .card{
+    background:#162433;border:1px solid #1e3a5f;border-radius:10px;
+    padding:1.2rem;transition:border-color .2s,box-shadow .2s;position:relative;
+  }
+  .card.highlight{border-color:#00d4aa;box-shadow:0 0 20px rgba(0,212,170,.1)}
+  .card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.8rem}
+  .matchup{font-size:1rem;font-weight:700;color:#fff}
+  .matchup .rank{color:#f0a030;font-size:.8rem;font-weight:400}
+  .game-time{font-size:.75rem;color:#6b8399;background:#0f1923;padding:.25rem .6rem;border-radius:4px}
+  .records{font-size:.75rem;color:#6b8399;margin-bottom:.8rem}
+
+  /* Prob bar */
+  .prob-bar-wrap{margin:.8rem 0}
+  .prob-labels{display:flex;justify-content:space-between;font-size:.75rem;margin-bottom:.3rem}
+  .prob-labels .home{color:#00d4aa}
+  .prob-labels .away{color:#e84057}
+  .prob-bar{display:flex;height:8px;border-radius:4px;overflow:hidden}
+  .prob-bar .home-fill{background:#00d4aa}
+  .prob-bar .away-fill{background:#e84057}
+  .prob-detail{display:flex;justify-content:space-between;font-size:.7rem;color:#6b8399;margin-top:.2rem}
+
+  /* Market rows */
+  .markets{margin-top:.8rem}
+  .market-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:.5rem 0;border-top:1px solid #1a2a3a;font-size:.82rem;
+  }
+  .market-label{color:#8ba4b8;font-weight:600;min-width:90px}
+  .market-value{color:#c7d5e0}
+  .market-pick{font-weight:600}
+  .edge-badge{
+    font-size:.7rem;padding:.15rem .5rem;border-radius:3px;font-weight:700;
+  }
+  .edge-green{background:rgba(0,212,170,.15);color:#00d4aa}
+  .edge-red{background:rgba(232,64,87,.15);color:#e84057}
+  .edge-neutral{background:rgba(107,131,153,.15);color:#6b8399}
+
+  /* Confidence meter */
+  .confidence-wrap{margin-top:.6rem;display:flex;align-items:center;gap:.6rem;font-size:.78rem}
+  .conf-bar{flex:1;height:6px;background:#0f1923;border-radius:3px;overflow:hidden}
+  .conf-fill{height:100%;border-radius:3px;transition:width .5s}
+
+  /* Bankroll recommendation */
+  .bankroll{
+    margin-top:.8rem;padding:.6rem .8rem;border-radius:6px;
+    background:rgba(0,212,170,.08);border:1px solid rgba(0,212,170,.2);font-size:.8rem;
+  }
+  .bankroll .tier{color:#00d4aa;font-weight:700}
+  .bankroll .detail{color:#8ba4b8;margin-top:.2rem}
+
+  /* Manual form */
+  .form-section{max-width:520px}
+  .form-group{margin-bottom:1rem}
+  .form-group label{display:block;font-size:.8rem;color:#8ba4b8;margin-bottom:.3rem;font-weight:600}
+  .form-group input, .form-group select{
+    width:100%;padding:.6rem .8rem;background:#0f1923;border:1px solid #1e3a5f;
+    border-radius:6px;color:#fff;font-size:.9rem;outline:none;transition:border-color .2s;
+  }
+  .form-group input:focus, .form-group select:focus{border-color:#00d4aa}
+  .form-group input::placeholder{color:#3d5a73}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+  .btn{
+    padding:.7rem 2rem;background:#00d4aa;color:#0f1923;border:none;border-radius:6px;
+    font-weight:700;font-size:.9rem;cursor:pointer;transition:background .2s;
+  }
+  .btn:hover{background:#00eabb}
+  .btn:disabled{background:#1e3a5f;color:#6b8399;cursor:not-allowed}
+  .btn-sm{padding:.4rem 1rem;font-size:.78rem}
+  .btn-outline{
+    background:transparent;border:1px solid #00d4aa;color:#00d4aa;
+  }
+  .btn-outline:hover{background:rgba(0,212,170,.1)}
+
+  /* Autocomplete */
+  .autocomplete-wrap{position:relative}
+  .autocomplete-list{
+    position:absolute;top:100%;left:0;right:0;background:#1a2f42;
+    border:1px solid #1e3a5f;border-radius:0 0 6px 6px;max-height:180px;
+    overflow-y:auto;z-index:10;display:none;
+  }
+  .autocomplete-list.show{display:block}
+  .autocomplete-item{
+    padding:.5rem .8rem;cursor:pointer;font-size:.85rem;
+  }
+  .autocomplete-item:hover,.autocomplete-item.selected{background:#00d4aa22;color:#00d4aa}
+
+  /* Error / empty */
+  .msg-box{
+    text-align:center;padding:2rem;color:#6b8399;font-size:.9rem;
+  }
+  .msg-box.error{color:#e84057}
+
+  /* Data source toggle */
+  .source-toggle{
+    display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;flex-wrap:wrap;
+  }
+  .toggle-label{font-size:.85rem;color:#8ba4b8;font-weight:600}
+  .toggle-btns{display:flex;gap:0}
+  .toggle-btn{
+    padding:.45rem 1.2rem;background:#162433;border:1px solid #1e3a5f;
+    color:#6b8399;cursor:pointer;font-size:.8rem;font-weight:600;
+    transition:all .2s;
+  }
+  .toggle-btn:first-child{border-radius:6px 0 0 6px}
+  .toggle-btn:last-child{border-radius:0 6px 6px 0}
+  .toggle-btn:not(:first-child){border-left:none}
+  .toggle-btn.active{background:#1a2f42;color:#00d4aa;border-color:#00d4aa}
+  .toggle-btn:hover:not(.active){background:#1a2a3a;color:#8ba4b8}
+
+  /* Refresh button */
+  .refresh-btn{
+    width:42px;height:42px;border-radius:50%;border:2px solid #1e3a5f;
+    background:#162433;color:#00d4aa;cursor:pointer;display:flex;
+    align-items:center;justify-content:center;transition:all .3s;flex-shrink:0;
+  }
+  .refresh-btn:hover{background:#1a2f42;border-color:#00d4aa;box-shadow:0 0 12px rgba(0,212,170,.25)}
+  .refresh-btn:active{transform:scale(.92)}
+  .refresh-btn.spinning svg{animation:spin .8s linear infinite}
+  .refresh-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+
+  /* Save button on cards */
+  .save-icon{
+    position:absolute;top:.8rem;right:.8rem;width:28px;height:28px;
+    border-radius:50%;border:1px solid #1e3a5f;background:#0f1923;
+    color:#6b8399;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;transition:all .2s;font-size:.85rem;z-index:2;
+  }
+  .save-icon:hover{border-color:#00d4aa;color:#00d4aa;background:#162433}
+  .save-icon.saved{border-color:#00d4aa;color:#00d4aa;background:rgba(0,212,170,.15)}
+
+  /* Toast */
+  .toast{
+    position:fixed;bottom:2rem;right:2rem;background:#1a2f42;border:1px solid #00d4aa;
+    color:#00d4aa;padding:.8rem 1.5rem;border-radius:8px;font-size:.85rem;font-weight:600;
+    z-index:100;opacity:0;transform:translateY(20px);transition:all .3s;pointer-events:none;
+  }
+  .toast.show{opacity:1;transform:translateY(0)}
+  .toast.error{border-color:#e84057;color:#e84057}
+
+  /* Disclaimer */
+  .disclaimer{
+    text-align:center;font-size:.7rem;color:#3d5a73;padding:2rem;
+    border-top:1px solid #1e3a5f;margin-top:2rem;
+  }
+
+  /* Result card (manual) */
+  .result-wrap{margin-top:1.5rem}
+
+  /* ---- Pick History Styles ---- */
+  .stats-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem;margin-bottom:1.5rem;
+  }
+  .stat-card{
+    background:#162433;border:1px solid #1e3a5f;border-radius:8px;padding:1rem;text-align:center;
+  }
+  .stat-card .stat-value{font-size:1.5rem;font-weight:700;color:#fff}
+  .stat-card .stat-label{font-size:.75rem;color:#6b8399;margin-top:.2rem}
+  .stat-card.positive .stat-value{color:#00d4aa}
+  .stat-card.negative .stat-value{color:#e84057}
+
+  .market-breakdown{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.8rem;margin-bottom:1.5rem;
+  }
+  .market-stat{
+    background:#162433;border:1px solid #1e3a5f;border-radius:8px;padding:.8rem 1rem;
+  }
+  .market-stat .mkt-name{font-size:.85rem;font-weight:700;color:#fff;margin-bottom:.4rem}
+  .market-stat .mkt-row{display:flex;justify-content:space-between;font-size:.78rem;color:#8ba4b8;margin-top:.2rem}
+
+  .edge-cal{margin-bottom:1.5rem}
+  .edge-cal-row{
+    display:flex;align-items:center;gap:.8rem;margin-bottom:.4rem;font-size:.8rem;
+  }
+  .edge-cal-label{width:50px;color:#8ba4b8;text-align:right}
+  .edge-cal-bar{flex:1;height:20px;background:#0f1923;border-radius:4px;overflow:hidden;position:relative}
+  .edge-cal-fill{height:100%;border-radius:4px;transition:width .5s}
+  .edge-cal-pct{width:50px;color:#fff;font-weight:600}
+
+  .filters-bar{
+    display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-bottom:1.2rem;
+  }
+  .filters-bar select, .filters-bar input[type="date"]{
+    padding:.45rem .8rem;background:#0f1923;border:1px solid #1e3a5f;
+    border-radius:6px;color:#fff;font-size:.8rem;
+  }
+
+  .pick-list{display:flex;flex-direction:column;gap:.8rem}
+  .pick-card{
+    background:#162433;border-radius:8px;padding:1rem 1.2rem;
+    border-left:4px solid #6b8399;display:flex;align-items:center;
+    justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  }
+  .pick-card.won{border-left-color:#00d4aa}
+  .pick-card.lost{border-left-color:#e84057}
+  .pick-card.push{border-left-color:#f0a030}
+  .pick-card.pending{border-left-color:#6b8399}
+  .pick-info{flex:1;min-width:200px}
+  .pick-matchup{font-weight:700;color:#fff;font-size:.9rem}
+  .pick-detail{font-size:.78rem;color:#8ba4b8;margin-top:.2rem}
+  .pick-meta{text-align:right;min-width:120px}
+  .pick-status{
+    display:inline-block;padding:.2rem .6rem;border-radius:4px;font-size:.72rem;
+    font-weight:700;text-transform:uppercase;
+  }
+  .pick-status.won{background:rgba(0,212,170,.15);color:#00d4aa}
+  .pick-status.lost{background:rgba(232,64,87,.15);color:#e84057}
+  .pick-status.push{background:rgba(240,160,48,.15);color:#f0a030}
+  .pick-status.pending{background:rgba(107,131,153,.15);color:#6b8399}
+  .pick-score{font-size:.78rem;color:#c7d5e0;margin-top:.3rem}
+  .pick-actions{margin-top:.4rem}
+
+  .resolve-form{display:flex;gap:.4rem;align-items:center;margin-top:.4rem}
+  .resolve-form input{
+    width:50px;padding:.3rem .4rem;background:#0f1923;border:1px solid #1e3a5f;
+    border-radius:4px;color:#fff;font-size:.78rem;text-align:center;
+  }
+
+  .pagination{display:flex;gap:.5rem;justify-content:center;margin-top:1.2rem}
+  .pagination button{
+    padding:.4rem 1rem;background:#162433;border:1px solid #1e3a5f;
+    border-radius:6px;color:#6b8399;cursor:pointer;font-size:.8rem;
+  }
+  .pagination button:hover{border-color:#00d4aa;color:#00d4aa}
+  .pagination button:disabled{opacity:.4;cursor:not-allowed}
+
+  /* Responsive */
+  @media(max-width:500px){
+    .card-grid{grid-template-columns:1fr}
+    .header{padding:1rem}
+    .panel{padding:1rem}
+    .tabs{margin:1rem 1rem .5rem}
+    .stats-grid{grid-template-columns:repeat(3,1fr)}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1><span>NCAA</span> Basketball Betting Model</h1>
+    <div class="subtitle">MLP Neural Network &middot; Spread &middot; O/U &middot; Moneyline</div>
+  </div>
+  <div class="subtitle" id="dateStr"></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-panel="scan">Auto-Scan</div>
+  <div class="tab" data-panel="manual">Manual Analysis</div>
+  <div class="tab" data-panel="history">Pick History</div>
+</div>
+
+<!-- Auto-Scan Panel -->
+<div class="panel active" id="panel-scan">
+  <div class="source-toggle">
+    <span class="toggle-label">Data Source:</span>
+    <div class="toggle-btns">
+      <button class="toggle-btn active" data-source="espn">ESPN Live</button>
+      <button class="toggle-btn" data-source="odds-api">Odds API</button>
+      <button class="toggle-btn" data-source="fallback">Fallback DB</button>
+    </div>
+    <button class="refresh-btn" id="refresh-btn" title="Refresh ESPN data">
+      <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+    </button>
+  </div>
+  <div class="spinner-wrap" id="scan-spinner">
+    <div class="spinner"></div>
+    <p>Fetching games &amp; analyzing markets...</p>
+  </div>
+  <div id="scan-results" style="display:none">
+    <div id="scan-source" class="msg-box" style="padding:.5rem 0;text-align:left"></div>
+    <div class="section-title"><span>Top Plays</span><button class="btn btn-sm btn-outline" id="save-top-plays-btn">Save Top Plays</button></div>
+    <div class="card-grid" id="top-plays"></div>
+    <div class="section-title" style="margin-top:2rem"><span>All Games</span></div>
+    <div class="card-grid" id="all-games"></div>
+  </div>
+  <div id="scan-error" class="msg-box error" style="display:none"></div>
+</div>
+
+<!-- Manual Analysis Panel -->
+<div class="panel" id="panel-manual">
+  <div class="section-title"><span>Analyze</span> a Matchup</div>
+  <div class="form-section">
+    <div class="form-row">
+      <div class="form-group autocomplete-wrap">
+        <label>Home Team</label>
+        <input id="home-team" placeholder="e.g. Duke" autocomplete="off">
+        <div class="autocomplete-list" id="home-ac"></div>
+      </div>
+      <div class="form-group autocomplete-wrap">
+        <label>Away Team</label>
+        <input id="away-team" placeholder="e.g. Kansas" autocomplete="off">
+        <div class="autocomplete-list" id="away-ac"></div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Spread (home)</label>
+        <input id="spread" type="number" step="0.5" placeholder="-5.5">
+      </div>
+      <div class="form-group">
+        <label>Over/Under</label>
+        <input id="over-under" type="number" step="0.5" placeholder="148.5">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Home Moneyline</label>
+        <input id="home-ml" type="number" placeholder="-150">
+      </div>
+      <div class="form-group">
+        <label>Away Moneyline</label>
+        <input id="away-ml" type="number" placeholder="+130">
+      </div>
+    </div>
+    <button class="btn" id="analyze-btn">Analyze</button>
+  </div>
+  <div class="result-wrap" id="manual-result"></div>
+</div>
+
+<!-- Pick History Panel -->
+<div class="panel" id="panel-history">
+  <!-- Stats Overview -->
+  <div class="section-title"><span>Performance</span> Dashboard</div>
+  <div class="stats-grid" id="stats-grid"></div>
+
+  <!-- Market Breakdown -->
+  <div class="section-title"><span>Market</span> Breakdown</div>
+  <div class="market-breakdown" id="market-breakdown"></div>
+
+  <!-- Edge Calibration -->
+  <div class="section-title"><span>Edge</span> Calibration</div>
+  <div class="edge-cal" id="edge-cal"></div>
+
+  <!-- Filters -->
+  <div class="section-title"><span>Pick</span> History</div>
+  <div class="filters-bar">
+    <select id="filter-market">
+      <option value="">All Markets</option>
+      <option value="Spread">Spread</option>
+      <option value="O/U">O/U</option>
+      <option value="ML">ML</option>
+    </select>
+    <select id="filter-status">
+      <option value="">All Status</option>
+      <option value="pending">Pending</option>
+      <option value="won">Won</option>
+      <option value="lost">Lost</option>
+      <option value="push">Push</option>
+    </select>
+    <input type="date" id="filter-from" title="From date">
+    <input type="date" id="filter-to" title="To date">
+    <button class="btn btn-sm" id="filter-apply-btn">Apply</button>
+    <button class="btn btn-sm btn-outline" id="auto-resolve-btn">Auto-Resolve Pending</button>
+  </div>
+
+  <!-- Pick List -->
+  <div class="pick-list" id="pick-list"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<div class="disclaimer">
+  DISCLAIMER: For educational and entertainment purposes only.
+  Always bet responsibly. Never wager more than you can afford to lose.
+</div>
+
+<script>
+// ---- State ----
+let teamNames = [];
+let currentSource = 'espn';
+let lastScanData = null;
+let lastManualResult = null;
+let historyOffset = 0;
+const HISTORY_LIMIT = 20;
+
+// ---- Init ----
+document.getElementById('dateStr').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+    if (tab.dataset.panel === 'history') loadHistory();
+  });
+});
+
+// Fetch team names for autocomplete
+fetch('/api/teams').then(r => r.json()).then(names => { teamNames = names; });
+
+// Data source toggle
+document.querySelectorAll('.toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.source === currentSource) return;
+    currentSource = btn.dataset.source;
+    document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    runScan();
+  });
+});
+
+// Refresh button
+document.getElementById('refresh-btn').addEventListener('click', () => { runScan(); });
+
+// Auto-scan on load
+runScan();
+
+// ---- Toast ----
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => { t.className = 'toast'; }, 3000);
+}
+
+// ---- Save Pick(s) ----
+function savePick(analysis) {
+  return fetch('/api/picks/save', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(analysis)
+  }).then(r => r.json());
+}
+
+// Save Top Plays button
+document.getElementById('save-top-plays-btn').addEventListener('click', () => {
+  if (!lastScanData || !lastScanData.top_plays || lastScanData.top_plays.length === 0) {
+    showToast('No top plays to save', true);
+    return;
+  }
+  const btn = document.getElementById('save-top-plays-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  fetch('/api/picks/save', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(lastScanData.top_plays)
+  })
+    .then(r => r.json())
+    .then(results => {
+      btn.disabled = false;
+      btn.textContent = 'Save Top Plays';
+      const saved = results.filter(r => !r.duplicate).length;
+      const dupes = results.filter(r => r.duplicate).length;
+      let msg = `Saved ${saved} pick(s)`;
+      if (dupes > 0) msg += ` (${dupes} already tracked)`;
+      showToast(msg);
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Save Top Plays';
+      showToast('Error saving picks', true);
+    });
+});
+
+// ---- Auto-scan ----
+function runScan() {
+  const refreshBtn = document.getElementById('refresh-btn');
+  refreshBtn.classList.add('spinning');
+  refreshBtn.disabled = true;
+  document.getElementById('scan-spinner').style.display = '';
+  document.getElementById('scan-results').style.display = 'none';
+  document.getElementById('scan-error').style.display = 'none';
+
+  fetch('/api/scan?source=' + currentSource)
+    .then(r => r.json())
+    .then(data => {
+      lastScanData = data;
+      refreshBtn.classList.remove('spinning');
+      refreshBtn.disabled = false;
+      document.getElementById('scan-spinner').style.display = 'none';
+      document.getElementById('scan-results').style.display = '';
+
+      const srcLabel = data.source === 'espn' ? 'Live ESPN data'
+        : data.source === 'odds-api' ? 'The Odds API (live bookmaker lines)'
+        : currentSource === 'espn' ? 'Fallback database (ESPN unavailable)'
+        : currentSource === 'odds-api' ? 'Fallback database (Odds API unavailable)'
+        : 'Fallback database';
+      document.getElementById('scan-source').innerHTML =
+        `<span style="color:#6b8399">${srcLabel} &middot; ${data.total_games} games &middot; ${data.analyzed} analyzed</span>`;
+
+      const topEl = document.getElementById('top-plays');
+      if (data.top_plays.length === 0) {
+        topEl.innerHTML = '<div class="msg-box">No strong edges found today. All lines look efficient.</div>';
+      } else {
+        topEl.innerHTML = data.top_plays.map(g => gameCard(g, true, true)).join('');
+      }
+
+      const allEl = document.getElementById('all-games');
+      if (data.all_games.length === 0) {
+        allEl.innerHTML = '<div class="msg-box">No games with odds available.</div>';
+      } else {
+        allEl.innerHTML = data.all_games.map(g => gameCard(g, false, g.best_edge > 0)).join('');
+      }
+    })
+    .catch(err => {
+      refreshBtn.classList.remove('spinning');
+      refreshBtn.disabled = false;
+      document.getElementById('scan-spinner').style.display = 'none';
+      document.getElementById('scan-error').style.display = '';
+      document.getElementById('scan-error').textContent = 'Error loading games: ' + err.message;
+    });
+}
+
+// ---- Manual Analysis ----
+document.getElementById('analyze-btn').addEventListener('click', () => {
+  const home = document.getElementById('home-team').value.trim();
+  const away = document.getElementById('away-team').value.trim();
+  if (!home || !away) return;
+
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+
+  const body = { home_team: home, away_team: away };
+  const spread = document.getElementById('spread').value;
+  const ou = document.getElementById('over-under').value;
+  const hml = document.getElementById('home-ml').value;
+  const aml = document.getElementById('away-ml').value;
+  if (spread) body.spread = parseFloat(spread);
+  if (ou) body.over_under = parseFloat(ou);
+  if (hml) body.home_ml = parseInt(hml);
+  if (aml) body.away_ml = parseInt(aml);
+
+  fetch('/api/analyze', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = 'Analyze';
+      if (data.error) {
+        document.getElementById('manual-result').innerHTML = `<div class="msg-box error">${data.error}</div>`;
+      } else {
+        lastManualResult = data;
+        let saveBtn = '';
+        if (data.best_edge > 0) {
+          saveBtn = `<div style="margin-top:.8rem"><button class="btn btn-sm" onclick="saveManualPick()">Save This Pick</button></div>`;
+        }
+        document.getElementById('manual-result').innerHTML = gameCard(data, true, false) + saveBtn;
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Analyze';
+      document.getElementById('manual-result').innerHTML = `<div class="msg-box error">Error: ${err.message}</div>`;
+    });
+});
+
+function saveManualPick() {
+  if (!lastManualResult) return;
+  savePick(lastManualResult).then(results => {
+    const r = results[0];
+    if (r.duplicate) {
+      showToast('This pick is already tracked');
+    } else {
+      showToast('Pick saved!');
+    }
+  }).catch(() => showToast('Error saving pick', true));
+}
+
+// ---- Autocomplete ----
+function setupAutocomplete(inputId, listId) {
+  const input = document.getElementById(inputId);
+  const list = document.getElementById(listId);
+  let selIdx = -1;
+
+  input.addEventListener('input', () => {
+    const val = input.value.trim().toLowerCase();
+    if (val.length < 1) { list.classList.remove('show'); return; }
+    const matches = teamNames.filter(n => n.toLowerCase().includes(val)).slice(0, 8);
+    if (matches.length === 0) { list.classList.remove('show'); return; }
+    selIdx = -1;
+    list.innerHTML = matches.map(m => `<div class="autocomplete-item">${m}</div>`).join('');
+    list.classList.add('show');
+    list.querySelectorAll('.autocomplete-item').forEach(item => {
+      item.addEventListener('mousedown', e => { e.preventDefault(); input.value = item.textContent; list.classList.remove('show'); });
+    });
+  });
+
+  input.addEventListener('keydown', e => {
+    const items = list.querySelectorAll('.autocomplete-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); selIdx = Math.min(selIdx+1, items.length-1); updateSel(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); selIdx = Math.max(selIdx-1, 0); updateSel(items); }
+    else if (e.key === 'Enter' && selIdx >= 0) { e.preventDefault(); input.value = items[selIdx].textContent; list.classList.remove('show'); }
+  });
+
+  input.addEventListener('blur', () => { setTimeout(() => list.classList.remove('show'), 150); });
+
+  function updateSel(items) {
+    items.forEach((it, i) => it.classList.toggle('selected', i === selIdx));
+  }
+}
+setupAutocomplete('home-team', 'home-ac');
+setupAutocomplete('away-team', 'away-ac');
+
+// ---- Card Renderer ----
+function gameCard(g, highlight, showSave) {
+  const hwp = (g.home_win_prob * 100).toFixed(1);
+  const awp = (g.away_win_prob * 100).toFixed(1);
+  const conf = g.confidence.toFixed(0);
+  const confColor = conf >= 70 ? '#00d4aa' : conf >= 40 ? '#f0a030' : '#e84057';
+
+  const homeRank = g.home_rank && g.home_rank <= 25 ? `<span class="rank">#${g.home_rank} </span>` : '';
+  const awayRank = g.away_rank && g.away_rank <= 25 ? `<span class="rank">#${g.away_rank} </span>` : '';
+
+  let markets = '';
+
+  // Spread
+  if (g.spread !== null && g.spread !== undefined) {
+    const se = g.spread_edge !== null ? g.spread_edge : 0;
+    const absEdge = (Math.abs(se) * 100).toFixed(1);
+    const edgeCls = Math.abs(se) >= 0.03 ? 'edge-green' : 'edge-neutral';
+    const pick = g.spread_pick || 'No edge';
+    markets += marketRow('Spread', fmtSpread(g.spread), pick, absEdge + '%', edgeCls);
+  }
+
+  // O/U
+  if (g.over_under !== null && g.over_under !== undefined) {
+    const ouDiff = g.ou_edge !== null ? g.ou_edge : 0;
+    const absOU = Math.abs(ouDiff).toFixed(1);
+    const edgeCls = Math.abs(ouDiff) >= 3 ? 'edge-green' : 'edge-neutral';
+    const pick = g.ou_pick || 'No edge';
+    const detail = g.predicted_total ? `Line ${g.over_under.toFixed(1)} | Pred ${g.predicted_total.toFixed(1)}` : g.over_under.toFixed(1);
+    markets += marketRow('O/U', detail, pick, absOU + ' pts', edgeCls);
+  }
+
+  // Moneyline
+  if (g.home_ml !== null && g.home_ml !== undefined) {
+    const mlEdge = g.ml_edge !== null ? g.ml_edge : 0;
+    const absML = (Math.abs(mlEdge) * 100).toFixed(1);
+    const edgeCls = Math.abs(mlEdge) >= 0.03 ? 'edge-green' : 'edge-neutral';
+    const pick = g.ml_pick || 'No edge';
+    const mlStr = fmtML(g.home_ml) + ' / ' + fmtML(g.away_ml);
+    markets += marketRow('ML', mlStr, pick, absML + '%', edgeCls);
+  }
+
+  // Bankroll
+  let bankrollHtml = '';
+  if (g.bankroll) {
+    bankrollHtml = `
+      <div class="bankroll">
+        <div class="tier">${g.bankroll.label}</div>
+        <div class="detail">Best: ${g.best_market} &rarr; ${g.best_pick} &middot; ${g.bankroll.stake}</div>
+      </div>`;
+  }
+
+  // Save icon
+  const saveIconHtml = showSave && g.best_edge > 0
+    ? `<div class="save-icon" onclick="saveCardPick(this, ${esc4attr(JSON.stringify(g))})" title="Save pick">&#9734;</div>`
+    : '';
+
+  return `
+    <div class="card${highlight ? ' highlight' : ''}">
+      ${saveIconHtml}
+      <div class="card-header">
+        <div class="matchup">${awayRank}${esc(g.away_team)} <span style="color:#6b8399">@</span> ${homeRank}${esc(g.home_team)}</div>
+        <div class="game-time">${esc(g.time)}</div>
+      </div>
+      ${g.home_record || g.away_record ? `<div class="records">${esc(g.away_record)} / ${esc(g.home_record)}</div>` : ''}
+      <div class="prob-bar-wrap">
+        <div class="prob-labels">
+          <span class="home">${esc(g.home_team)} ${hwp}%</span>
+          <span class="away">${esc(g.away_team)} ${awp}%</span>
+        </div>
+        <div class="prob-bar">
+          <div class="home-fill" style="width:${hwp}%"></div>
+          <div class="away-fill" style="width:${awp}%"></div>
+        </div>
+        <div class="prob-detail">
+          <span>Predicted margin: ${g.predicted_margin >= 0 ? esc(g.home_team) : esc(g.away_team)} ${Math.abs(g.predicted_margin).toFixed(1)}</span>
+        </div>
+      </div>
+      <div class="confidence-wrap">
+        <span>Confidence</span>
+        <div class="conf-bar"><div class="conf-fill" style="width:${conf}%;background:${confColor}"></div></div>
+        <span style="color:${confColor};font-weight:700">${conf}%</span>
+      </div>
+      <div class="markets">${markets}</div>
+      ${bankrollHtml}
+    </div>`;
+}
+
+function saveCardPick(el, data) {
+  if (el.classList.contains('saved')) return;
+  savePick(data).then(results => {
+    const r = results[0];
+    el.classList.add('saved');
+    el.innerHTML = '&#9733;';
+    showToast(r.duplicate ? 'Already tracked' : 'Pick saved!');
+  }).catch(() => showToast('Error saving', true));
+}
+
+function marketRow(label, value, pick, edge, edgeCls) {
+  return `
+    <div class="market-row">
+      <span class="market-label">${label}</span>
+      <span class="market-value">${value}</span>
+      <span class="market-pick">${esc(pick)}</span>
+      <span class="edge-badge ${edgeCls}">${edge}</span>
+    </div>`;
+}
+
+function fmtSpread(s) { return (s >= 0 ? '+' : '') + s.toFixed(1); }
+function fmtML(ml) { return (ml >= 0 ? '+' : '') + ml; }
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc4attr(s) { return s.replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ---- Pick History ----
+function loadHistory() {
+  loadStats();
+  loadPickList();
+}
+
+function loadStats() {
+  const params = getFilterParams();
+  fetch('/api/picks/stats?' + params)
+    .then(r => r.json())
+    .then(stats => {
+      // Stats grid
+      const profitClass = stats.profit >= 0 ? 'positive' : 'negative';
+      const roiClass = stats.roi >= 0 ? 'positive' : 'negative';
+      const streakLabel = stats.current_streak.type === 'won' ? `W${stats.current_streak.count}`
+        : stats.current_streak.type === 'lost' ? `L${stats.current_streak.count}` : '-';
+      document.getElementById('stats-grid').innerHTML = `
+        <div class="stat-card"><div class="stat-value">${stats.total}</div><div class="stat-label">Total Picks</div></div>
+        <div class="stat-card ${stats.win_rate >= 52 ? 'positive' : ''}"><div class="stat-value">${stats.win_rate}%</div><div class="stat-label">Win Rate</div></div>
+        <div class="stat-card ${roiClass}"><div class="stat-value">${stats.roi > 0 ? '+' : ''}${stats.roi}%</div><div class="stat-label">ROI</div></div>
+        <div class="stat-card ${profitClass}"><div class="stat-value">${stats.profit > 0 ? '+' : ''}${stats.profit}u</div><div class="stat-label">Profit</div></div>
+        <div class="stat-card"><div class="stat-value">${streakLabel}</div><div class="stat-label">Current Streak</div></div>
+        <div class="stat-card"><div class="stat-value">W${stats.best_streak}</div><div class="stat-label">Best Streak</div></div>
+      `;
+
+      // Market breakdown
+      let mktHtml = '';
+      for (const [mkt, ms] of Object.entries(stats.market_stats)) {
+        mktHtml += `
+          <div class="market-stat">
+            <div class="mkt-name">${esc(mkt)}</div>
+            <div class="mkt-row"><span>Record</span><span>${ms.wins}-${ms.losses}</span></div>
+            <div class="mkt-row"><span>Win %</span><span>${ms.win_rate.toFixed(1)}%</span></div>
+            <div class="mkt-row"><span>ROI</span><span>${ms.roi > 0 ? '+' : ''}${ms.roi.toFixed(1)}%</span></div>
+            <div class="mkt-row"><span>Profit</span><span>${ms.profit > 0 ? '+' : ''}${ms.profit}u</span></div>
+          </div>`;
+      }
+      document.getElementById('market-breakdown').innerHTML = mktHtml;
+
+      // Edge calibration
+      let calHtml = '';
+      for (const b of stats.edge_calibration) {
+        const pct = b.win_rate;
+        const color = pct >= 55 ? '#00d4aa' : pct >= 45 ? '#f0a030' : '#e84057';
+        calHtml += `
+          <div class="edge-cal-row">
+            <span class="edge-cal-label">${b.label}</span>
+            <div class="edge-cal-bar">
+              <div class="edge-cal-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div>
+            </div>
+            <span class="edge-cal-pct">${pct.toFixed(0)}% <span style="color:#6b8399;font-weight:400;font-size:.72rem">(${b.total})</span></span>
+          </div>`;
+      }
+      document.getElementById('edge-cal').innerHTML = calHtml || '<div class="msg-box">No resolved picks yet</div>';
+    });
+}
+
+function getFilterParams() {
+  const p = new URLSearchParams();
+  const m = document.getElementById('filter-market').value;
+  const s = document.getElementById('filter-status').value;
+  const df = document.getElementById('filter-from').value;
+  const dt = document.getElementById('filter-to').value;
+  if (m) p.set('market', m);
+  if (s) p.set('status', s);
+  if (df) p.set('date_from', df);
+  if (dt) p.set('date_to', dt);
+  return p.toString();
+}
+
+function loadPickList() {
+  const params = getFilterParams();
+  fetch(`/api/picks/history?${params}&limit=${HISTORY_LIMIT}&offset=${historyOffset}`)
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('pick-list');
+      if (data.picks.length === 0) {
+        el.innerHTML = '<div class="msg-box">No picks found. Save some picks from Auto-Scan or Manual Analysis!</div>';
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+      el.innerHTML = data.picks.map(pickCard).join('');
+
+      // Pagination
+      const totalPages = Math.ceil(data.total / HISTORY_LIMIT);
+      const currentPage = Math.floor(historyOffset / HISTORY_LIMIT) + 1;
+      let pgHtml = '';
+      if (currentPage > 1) pgHtml += `<button onclick="historyOffset-=${HISTORY_LIMIT};loadPickList()">Prev</button>`;
+      pgHtml += `<span style="color:#6b8399;font-size:.8rem;padding:.4rem">Page ${currentPage} of ${totalPages} (${data.total} picks)</span>`;
+      if (currentPage < totalPages) pgHtml += `<button onclick="historyOffset+=${HISTORY_LIMIT};loadPickList()">Next</button>`;
+      document.getElementById('pagination').innerHTML = pgHtml;
+    });
+}
+
+function pickCard(p) {
+  const statusCls = p.status;
+  const edgePct = p.best_edge != null ? (Math.abs(p.best_edge) * 100).toFixed(1) : '0';
+  const scoreHtml = p.home_score != null
+    ? `<div class="pick-score">${esc(p.away_team)} ${p.away_score} - ${esc(p.home_team)} ${p.home_score}</div>`
+    : '';
+
+  let resolveHtml = '';
+  if (p.status === 'pending') {
+    resolveHtml = `
+      <div class="resolve-form">
+        <input type="number" id="hs-${p.id}" placeholder="H" min="0">
+        <span style="color:#6b8399">-</span>
+        <input type="number" id="as-${p.id}" placeholder="A" min="0">
+        <button class="btn btn-sm" onclick="manualResolve(${p.id})">Resolve</button>
+      </div>`;
+  }
+
+  return `
+    <div class="pick-card ${statusCls}">
+      <div class="pick-info">
+        <div class="pick-matchup">${esc(p.away_team)} @ ${esc(p.home_team)}</div>
+        <div class="pick-detail">
+          ${esc(p.best_market)} &middot; ${esc(p.best_pick || 'N/A')} &middot; Edge: ${edgePct}%
+          &middot; ${esc(p.game_date || '')}
+        </div>
+      </div>
+      <div class="pick-meta">
+        <div class="pick-status ${statusCls}">${p.status}</div>
+        ${scoreHtml}
+        <div class="pick-actions">${resolveHtml}</div>
+      </div>
+    </div>`;
+}
+
+function manualResolve(id) {
+  const hs = document.getElementById('hs-' + id).value;
+  const as = document.getElementById('as-' + id).value;
+  if (hs === '' || as === '') { showToast('Enter both scores', true); return; }
+  fetch(`/api/picks/${id}/resolve`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ home_score: parseInt(hs), away_score: parseInt(as) })
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { showToast(data.error, true); return; }
+      showToast(`Pick resolved: ${data.status.toUpperCase()}`);
+      loadHistory();
+    })
+    .catch(() => showToast('Error resolving pick', true));
+}
+
+// Auto-resolve button
+document.getElementById('auto-resolve-btn').addEventListener('click', () => {
+  const btn = document.getElementById('auto-resolve-btn');
+  btn.disabled = true;
+  btn.textContent = 'Resolving...';
+  fetch('/api/picks/resolve-pending', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = 'Auto-Resolve Pending';
+      showToast(data.resolved > 0 ? `Resolved ${data.resolved} pick(s)` : (data.message || 'No picks to resolve'));
+      if (data.resolved > 0) loadHistory();
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Auto-Resolve Pending';
+      showToast('Error auto-resolving', true);
+    });
+});
+
+// Filter apply
+document.getElementById('filter-apply-btn').addEventListener('click', () => {
+  historyOffset = 0;
+  loadHistory();
+});
+</script>
+</body>
+</html>
