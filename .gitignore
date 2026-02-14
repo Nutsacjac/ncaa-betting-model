@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environment
+bin/
+lib/
+lib64
+pyvenv.cfg
+=3.0.0
+
+# IDE
+.vscode/
+
+# Database
+picks.db
+
+# OS
+.DS_Store
+Thumbs.db
