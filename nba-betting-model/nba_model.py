@@ -19,7 +19,9 @@ Usage:
 """
 
 import argparse
+import logging
 import time
+from collections import Counter
 from datetime import datetime
 
 import numpy as np
@@ -31,6 +33,8 @@ from sklearn.preprocessing import StandardScaler
 
 import warnings
 warnings.filterwarnings('ignore')
+
+logging.basicConfig(level=logging.INFO, format="  [%(levelname)s] %(message)s")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -52,6 +56,8 @@ THE_ODDS_API_URL = (
 
 REQUEST_TIMEOUT = 10  # seconds
 API_DELAY = 0.3       # seconds between ESPN calls
+ESPN_CACHE_TTL = 300  # 5 minutes for ESPN data
+ODDS_CACHE_TTL = 120  # 2 minutes for Odds API data (odds change faster)
 
 EDGE_THRESHOLD_SPREAD = 0.03   # 3% min edge for spread
 EDGE_THRESHOLD_ML = 0.03       # 3% min edge for moneyline
@@ -70,16 +76,67 @@ BANKROLL_TIERS = [
 class ESPNDataProvider:
     """Fetch live games, odds, and team stats from ESPN's free public API."""
 
+    _cache = {}  # {url: (timestamp, data)}
+
+    @staticmethod
+    def _get_cached(url):
+        """Return cached response data if still valid, else None."""
+        if url in ESPNDataProvider._cache:
+            ts, data = ESPNDataProvider._cache[url]
+            if time.time() - ts < ESPN_CACHE_TTL:
+                return data
+            del ESPNDataProvider._cache[url]
+        return None
+
+    @staticmethod
+    def _set_cache(url, data):
+        ESPNDataProvider._cache[url] = (time.time(), data)
+
+    @staticmethod
+    def _request_with_retry(url, params=None, max_retries=3, base_delay=1.0):
+        """HTTP GET with exponential backoff on timeout, connection error, 5xx."""
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+                if resp.status_code == 404:
+                    logging.warning("ESPN 404 – resource not found: %s", url)
+                    return None
+                if resp.status_code >= 500:
+                    logging.warning("ESPN %d on attempt %d/%d: %s",
+                                    resp.status_code, attempt + 1, max_retries, url)
+                    if attempt < max_retries - 1:
+                        time.sleep(base_delay * (2 ** attempt))
+                        continue
+                    return None
+                resp.raise_for_status()
+                return resp.json()
+            except requests.exceptions.Timeout:
+                logging.warning("ESPN timeout on attempt %d/%d: %s",
+                                attempt + 1, max_retries, url)
+            except requests.exceptions.ConnectionError:
+                logging.warning("ESPN connection error on attempt %d/%d: %s",
+                                attempt + 1, max_retries, url)
+            except requests.exceptions.RequestException as e:
+                logging.warning("ESPN request error: %s", e)
+                return None
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+        logging.error("ESPN request failed after %d retries: %s", max_retries, url)
+        return None
+
     @staticmethod
     def fetch_scoreboard():
         """Return today's games with odds from the ESPN scoreboard API."""
-        try:
-            resp = requests.get(ESPN_SCOREBOARD_URL, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"  Could not reach ESPN scoreboard: {e}")
-            return None
+        cached = ESPNDataProvider._get_cached(ESPN_SCOREBOARD_URL)
+        if cached is not None:
+            logging.info("ESPN scoreboard served from cache")
+            data = cached
+        else:
+            data = ESPNDataProvider._request_with_retry(ESPN_SCOREBOARD_URL)
+            if data is None:
+                print("  Could not reach ESPN scoreboard.")
+                return None
+            ESPNDataProvider._set_cache(ESPN_SCOREBOARD_URL, data)
 
         games = []
         for event in data.get("events", []):
@@ -190,13 +247,16 @@ class ESPNDataProvider:
     @staticmethod
     def fetch_team_stats(team_id):
         """Fetch per-game stats for a team. Returns dict or None."""
-        try:
-            url = ESPN_TEAM_STATS_URL.format(team_id=team_id)
-            resp = requests.get(url, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            return None
+        url = ESPN_TEAM_STATS_URL.format(team_id=team_id)
+
+        cached = ESPNDataProvider._get_cached(url)
+        if cached is not None:
+            data = cached
+        else:
+            data = ESPNDataProvider._request_with_retry(url)
+            if data is None:
+                return None
+            ESPNDataProvider._set_cache(url, data)
 
         stats = {}
         try:
@@ -233,14 +293,22 @@ class ESPNDataProvider:
     @staticmethod
     def search_team(name):
         """Search ESPN for a team by name. Returns (team_id, display_name) or None."""
+        url = (
+            "https://site.api.espn.com/apis/site/v2/sports/basketball"
+            "/nba/teams"
+        )
+        cache_key = url + "?limit=50"
+
+        cached = ESPNDataProvider._get_cached(cache_key)
+        if cached is not None:
+            data = cached
+        else:
+            data = ESPNDataProvider._request_with_retry(url, params={"limit": 50})
+            if data is None:
+                return None
+            ESPNDataProvider._set_cache(cache_key, data)
+
         try:
-            url = (
-                "https://site.api.espn.com/apis/site/v2/sports/basketball"
-                "/nba/teams"
-            )
-            resp = requests.get(url, params={"limit": 50}, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
             name_lower = name.lower()
             for team in data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", []):
                 t = team.get("team", {})
@@ -260,12 +328,14 @@ class ESPNDataProvider:
     @staticmethod
     def fetch_final_scores():
         """Return only completed games with final scores from today's scoreboard."""
-        try:
-            resp = requests.get(ESPN_SCOREBOARD_URL, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception:
-            return []
+        cached = ESPNDataProvider._get_cached(ESPN_SCOREBOARD_URL)
+        if cached is not None:
+            data = cached
+        else:
+            data = ESPNDataProvider._request_with_retry(ESPN_SCOREBOARD_URL)
+            if data is None:
+                return []
+            ESPNDataProvider._set_cache(ESPN_SCOREBOARD_URL, data)
 
         results = []
         for event in data.get("events", []):
@@ -285,9 +355,28 @@ class ESPNDataProvider:
 class TheOddsAPIProvider:
     """Fetch live betting odds from The Odds API (the-odds-api.com)."""
 
+    _cache = {}  # {url_key: (timestamp, data)}
+
     @staticmethod
     def fetch_odds():
         """Return a list of games with odds from The Odds API."""
+        cache_key = THE_ODDS_API_URL
+
+        # Check cache first
+        if cache_key in TheOddsAPIProvider._cache:
+            ts, cached_events = TheOddsAPIProvider._cache[cache_key]
+            if time.time() - ts < ODDS_CACHE_TTL:
+                logging.info("Odds API served from cache")
+                games = []
+                for event in cached_events:
+                    try:
+                        game = TheOddsAPIProvider._parse_event(event)
+                        if game:
+                            games.append(game)
+                    except Exception:
+                        continue
+                return games if games else None
+
         try:
             params = {
                 "apiKey": THE_ODDS_API_KEY,
@@ -304,6 +393,9 @@ class TheOddsAPIProvider:
 
         if not events:
             return None
+
+        # Cache raw events
+        TheOddsAPIProvider._cache[cache_key] = (time.time(), events)
 
         remaining = resp.headers.get("x-requests-remaining")
         used = resp.headers.get("x-requests-used")
@@ -323,7 +415,7 @@ class TheOddsAPIProvider:
 
     @staticmethod
     def _parse_event(event):
-        """Parse a single Odds API event into an odds dict."""
+        """Parse a single Odds API event, selecting best lines across all bookmakers."""
         home_team = event.get("home_team", "")
         away_team = event.get("away_team", "")
         commence = event.get("commence_time", "")
@@ -334,32 +426,47 @@ class TheOddsAPIProvider:
         except Exception:
             game_time = "TBD"
 
-        spread = over_under = home_ml = away_ml = None
+        # Collect all lines across bookmakers for best-line selection
+        all_home_ml = []
+        all_away_ml = []
+        all_home_spreads = []
+        all_totals = []
 
         for bookmaker in event.get("bookmakers", []):
             for market in bookmaker.get("markets", []):
                 key = market.get("key")
                 outcomes = market.get("outcomes", [])
 
-                if key == "h2h" and home_ml is None:
+                if key == "h2h":
                     for o in outcomes:
                         if o.get("name") == home_team:
-                            home_ml = int(o["price"])
+                            all_home_ml.append(int(o["price"]))
                         elif o.get("name") == away_team:
-                            away_ml = int(o["price"])
+                            all_away_ml.append(int(o["price"]))
 
-                elif key == "spreads" and spread is None:
+                elif key == "spreads":
                     for o in outcomes:
                         if o.get("name") == home_team:
-                            spread = float(o.get("point", 0))
+                            all_home_spreads.append(float(o.get("point", 0)))
 
-                elif key == "totals" and over_under is None:
+                elif key == "totals":
                     for o in outcomes:
                         if o.get("name") == "Over":
-                            over_under = float(o.get("point", 0))
+                            all_totals.append(float(o.get("point", 0)))
 
-            if home_ml is not None or spread is not None or over_under is not None:
-                break
+        # Best moneyline: highest price for each side (most favorable to bettor)
+        home_ml = max(all_home_ml) if all_home_ml else None
+        away_ml = max(all_away_ml) if all_away_ml else None
+
+        # Best spread: most points for the home team (highest value = most favorable)
+        spread = max(all_home_spreads) if all_home_spreads else None
+
+        # Consensus total: most common line across bookmakers
+        if all_totals:
+            total_counts = Counter(all_totals)
+            over_under = total_counts.most_common(1)[0][0]
+        else:
+            over_under = None
 
         return {
             "home_team": home_team,

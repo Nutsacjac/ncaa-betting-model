@@ -46,6 +46,44 @@ print("  Picks database ready.")
 API_DELAY = 0.3
 
 
+def _auto_resolve_pending():
+    """Automatically resolve any pending picks using ESPN final scores."""
+    try:
+        final_games = ESPNDataProvider.fetch_final_scores()
+        if not final_games:
+            return 0
+
+        pending = picks_db.get_history(status="pending", limit=500)
+        if not pending["picks"]:
+            return 0
+
+        def _normalize(name):
+            return name.lower().replace(".", "").replace("'", "").strip()
+
+        def _match(a, b):
+            na, nb = _normalize(a), _normalize(b)
+            return na == nb or na in nb or nb in na
+
+        resolved_count = 0
+        for pick in pending["picks"]:
+            for game in final_games:
+                if (_match(pick["home_team"], game["home_team"])
+                        and _match(pick["away_team"], game["away_team"])):
+                    result = picks_db.resolve_pick(
+                        pick["id"], game["home_score"], game["away_score"]
+                    )
+                    if result and result != "pending":
+                        resolved_count += 1
+                    break
+
+        if resolved_count > 0:
+            print(f"  [Auto-resolve] Resolved {resolved_count} pending pick(s).")
+        return resolved_count
+    except Exception as e:
+        print(f"  [Auto-resolve] Error: {e}")
+        return 0
+
+
 def _sanitize(obj):
     """Recursively convert numpy types to native Python for JSON serialization."""
     if isinstance(obj, dict):
@@ -155,6 +193,9 @@ def api_scan():
     """
     requested_source = request.args.get("source", "espn")
 
+    # Auto-resolve any pending picks with final scores
+    _auto_resolve_pending()
+
     games = None
     source = requested_source
 
@@ -162,18 +203,36 @@ def api_scan():
         games = ESPNDataProvider.fetch_scoreboard()
         source = "espn"
         if not games:
-            games = TeamDatabase.generate_fallback_games()
-            source = "fallback"
+            # ESPN failed — try Odds API alone before falling back
+            odds_games = TheOddsAPIProvider.fetch_odds()
+            if odds_games:
+                for og in odds_games:
+                    og.setdefault("home_id", None)
+                    og.setdefault("away_id", None)
+                    og.setdefault("home_rank", 99)
+                    og.setdefault("away_rank", 99)
+                    og.setdefault("home_record", "")
+                    og.setdefault("away_record", "")
+                games = odds_games
+                source = "odds-api"
+            else:
+                games = TeamDatabase.generate_fallback_games()
+                source = "fallback"
+        else:
+            # ESPN succeeded — always also fetch Odds API for better lines
+            odds_games = TheOddsAPIProvider.fetch_odds()
+            if odds_games:
+                games = TheOddsAPIProvider.merge_odds_into_games(games, odds_games)
 
-        # If ESPN returned games but none have odds (in-progress/finished),
-        # fall back so the dashboard isn't empty.
-        has_odds = any(
-            g.get("spread") is not None or g.get("over_under") is not None
-            for g in games
-        )
-        if not has_odds:
-            games = TeamDatabase.generate_fallback_games()
-            source = "fallback"
+            # If ESPN returned games but none have odds (in-progress/finished),
+            # fall back so the dashboard isn't empty.
+            has_odds = any(
+                g.get("spread") is not None or g.get("over_under") is not None
+                for g in games
+            )
+            if not has_odds:
+                games = TeamDatabase.generate_fallback_games()
+                source = "fallback"
 
     elif requested_source == "odds-api":
         odds_games = TheOddsAPIProvider.fetch_odds()
