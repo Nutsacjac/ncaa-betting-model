@@ -1,5 +1,5 @@
 """
-Flask web frontend for the NCAA Basketball Betting Model.
+Flask web frontend for the NBA Basketball Betting Model.
 Serves a dashboard UI with auto-scan and manual analysis.
 """
 
@@ -7,11 +7,11 @@ import time
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 
-from ncaa_model import (
+from nba_model import (
     BANKROLL_TIERS,
     BettingAnalyzer,
     ESPNDataProvider,
-    NCAABettingModel,
+    NBABettingModel,
     TeamDatabase,
     TheOddsAPIProvider,
     _build_stats_dict,
@@ -28,8 +28,8 @@ import picks_db
 app = Flask(__name__)
 
 # Train model once at startup
-print("  Training NCAA betting model...")
-model = NCAABettingModel()
+print("  Training NBA betting model...")
+model = NBABettingModel()
 model.train()
 print("  Model ready.")
 
@@ -151,7 +151,7 @@ def api_scan():
     """Fetch today's games, analyze all markets, return JSON.
 
     Query params:
-      source  – "espn" (default), "odds-api", or "fallback"
+      source  -- "espn" (default), "odds-api", or "fallback"
     """
     requested_source = request.args.get("source", "espn")
 
@@ -178,12 +178,10 @@ def api_scan():
     elif requested_source == "odds-api":
         odds_games = TheOddsAPIProvider.fetch_odds()
         if odds_games:
-            # Also pull ESPN schedule so we get team IDs, ranks, records
             espn_games = ESPNDataProvider.fetch_scoreboard()
             if espn_games:
                 games = TheOddsAPIProvider.merge_odds_into_games(espn_games, odds_games)
             else:
-                # Use Odds API data directly (no ESPN enrichment)
                 for og in odds_games:
                     og.setdefault("home_id", None)
                     og.setdefault("away_id", None)
@@ -251,7 +249,6 @@ def api_analyze():
     if not home_name or not away_name:
         return jsonify({"error": "Both home_team and away_team are required."}), 400
 
-    # Try ESPN lookup for each team
     home_id = away_id = None
     home_display = home_name
     away_display = away_name
@@ -267,7 +264,6 @@ def api_analyze():
     home_stats = _resolve_team_stats(home_display, home_id, "", is_home=True)
     away_stats = _resolve_team_stats(away_display, away_id, "", is_home=False)
 
-    # Parse optional lines
     spread = data.get("spread")
     over_under = data.get("over_under")
     home_ml = data.get("home_ml")
@@ -282,7 +278,6 @@ def api_analyze():
     if away_ml is not None:
         away_ml = int(away_ml)
 
-    # If moneylines missing but spread given, estimate them
     if home_ml is None and away_ml is None and spread is not None:
         home_ml, away_ml = _spread_to_moneylines(spread)
 
@@ -376,7 +371,6 @@ def api_resolve_pending():
     if not final_games:
         return jsonify({"resolved": 0, "message": "No final scores available from ESPN."})
 
-    # Get all pending picks
     pending = picks_db.get_history(status="pending", limit=500)
     resolved_count = 0
 
@@ -406,4 +400,4 @@ def api_resolve_pending():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)
