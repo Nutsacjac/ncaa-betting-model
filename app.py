@@ -276,6 +276,7 @@ def api_scan():
 
         if home_stats and away_stats:
             result = analyzer.analyze_game(game, home_stats, away_stats)
+            result["game_status"] = game.get("game_status", "STATUS_SCHEDULED")
             if result.get("best_edge", 0) > 0:
                 result["bankroll"] = _bankroll_tier(result["best_edge"])
             analyses.append(result)
@@ -285,7 +286,10 @@ def api_scan():
 
     analyses.sort(key=lambda a: a["best_edge"], reverse=True)
 
-    top_plays = [a for a in analyses if a["best_edge"] > 0][:5]
+    top_plays = [
+        a for a in analyses
+        if a["best_edge"] > 0 and a.get("game_status", "STATUS_SCHEDULED") == "STATUS_SCHEDULED"
+    ][:5]
 
     # Build top parlay from strongest spread + O/U legs
     parlay = _build_parlay(analyses)

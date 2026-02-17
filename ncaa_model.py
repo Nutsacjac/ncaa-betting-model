@@ -231,6 +231,9 @@ class ESPNDataProvider:
             except (ValueError, TypeError):
                 away_score = None
 
+        # Game status for filtering (pre-game vs live vs final)
+        game_status = event.get("status", {}).get("type", {}).get("name", "STATUS_SCHEDULED")
+
         return {
             "home_team": home_team,
             "away_team": away_team,
@@ -247,6 +250,7 @@ class ESPNDataProvider:
             "time": game_time,
             "home_score": home_score,
             "away_score": away_score,
+            "game_status": game_status,
         }
 
     @staticmethod
