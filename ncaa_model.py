@@ -13,6 +13,7 @@ Usage:
   python ncaa_model.py --manual        # Interactive matchup input
   python ncaa_model.py --top 5         # Show top 5 plays (default: 3)
   python ncaa_model.py --all           # Show all games without prompting
+  python ncaa_model.py --yahoo         # Use Yahoo Sports as primary data source
   python ncaa_model.py --no-espn       # Force fallback data (skip ESPN)
   python ncaa_model.py --odds-api      # Use The Odds API for betting lines
   python ncaa_model.py --verbose       # Show model training output
@@ -537,6 +538,239 @@ class TheOddsAPIProvider:
 
 
 # ---------------------------------------------------------------------------
+# Yahoo Sports Data Provider
+# ---------------------------------------------------------------------------
+
+class YahooSportsProvider:
+    """Fetch NCAA game schedules, scores, and odds from Yahoo Sports internal API.
+
+    Uses the undocumented but publicly accessible endpoint:
+      api-secure.sports.yahoo.com/v1/editorial/s/scoreboard?leagues=ncaab&date=YYYY-MM-DD
+
+    Returns D-I games with team names, records, AP rankings, scores (if final),
+    and consensus betting odds (spread, O/U, moneylines) from available bookmakers.
+    """
+
+    BASE_URL = "https://api-secure.sports.yahoo.com/v1/editorial/s/scoreboard"
+    HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
+        ),
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+
+    _cache = {}  # {cache_key: (timestamp, raw_data)}
+
+    @classmethod
+    def _fetch_raw(cls, date_str):
+        """Fetch raw JSON from Yahoo Sports API for a given date (YYYY-MM-DD)."""
+        cache_key = f"yahoo_ncaab_{date_str}"
+        if cache_key in cls._cache:
+            ts, data = cls._cache[cache_key]
+            if time.time() - ts < ESPN_CACHE_TTL:
+                logging.info("Yahoo Sports served from cache (%s)", date_str)
+                return data
+
+        try:
+            resp = requests.get(
+                cls.BASE_URL,
+                params={"leagues": "ncaab", "date": date_str},
+                headers=cls.HEADERS,
+                timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.exceptions.RequestException as e:
+            logging.warning("Yahoo Sports request error: %s", e)
+            return None
+        except ValueError as e:
+            logging.warning("Yahoo Sports JSON decode error: %s", e)
+            return None
+
+        cls._cache[cache_key] = (time.time(), data)
+        return data
+
+    @classmethod
+    def fetch_scoreboard(cls, date=None):
+        """Return today's D-I NCAA games from Yahoo Sports.
+
+        Each game dict matches the same schema used by ESPNDataProvider:
+        home_team, away_team, home_id, away_id, home_rank, away_rank,
+        home_record, away_record, spread, over_under, home_ml, away_ml,
+        time, home_score, away_score, game_status.
+        """
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        raw = cls._fetch_raw(date)
+        if raw is None:
+            return None
+
+        try:
+            sb = raw["service"]["scoreboard"]
+        except (KeyError, TypeError):
+            logging.warning("Yahoo Sports: unexpected API structure")
+            return None
+
+        games_raw   = sb.get("games", {})
+        teams_raw   = sb.get("teams", {})
+        records_raw = sb.get("teamrecord", {})
+        rankings_raw = sb.get("teamrankings", {})
+        odds_raw    = sb.get("gameodds", {})
+
+        games = []
+        for game_id, g in games_raw.items():
+            try:
+                game = cls._parse_game(g, teams_raw, records_raw, rankings_raw, odds_raw)
+                if game:
+                    games.append(game)
+            except Exception:
+                continue
+
+        return games if games else None
+
+    @classmethod
+    def _parse_game(cls, g, teams, records, rankings, odds_by_game):
+        """Parse a single Yahoo Sports game dict into our normalized schema."""
+        home_team_id = g.get("home_team_id")
+        away_team_id = g.get("away_team_id")
+        if not home_team_id or not away_team_id:
+            return None
+
+        home_data = teams.get(home_team_id, {})
+        away_data  = teams.get(away_team_id, {})
+
+        # Filter to Division I only
+        if str(home_data.get("division_id", "")) != "1" or \
+           str(away_data.get("division_id", "")) != "1":
+            return None
+
+        home_name = (home_data.get("full_name")
+                     or home_data.get("display_name", ""))
+        away_name  = (away_data.get("full_name")
+                     or away_data.get("display_name", ""))
+        if not home_name or not away_name:
+            return None
+
+        # Records (e.g. "17-10")
+        home_record = records.get(home_team_id, "")
+        away_record  = records.get(away_team_id, "")
+
+        # AP poll ranks (primary poll)
+        home_rank = cls._get_rank(rankings.get(home_team_id, {}))
+        away_rank  = cls._get_rank(rankings.get(away_team_id, {}))
+
+        # Status / scores
+        status_type = g.get("status_type", "status.type.pregame")
+        is_final    = "final" in status_type.lower()
+        is_live     = "inprogress" in status_type.lower()
+
+        game_status = (
+            "STATUS_FINAL"     if is_final else
+            "STATUS_IN_PROGRESS" if is_live  else
+            "STATUS_SCHEDULED"
+        )
+
+        home_score = away_score = None
+        if is_final or is_live:
+            try:
+                home_score = int(g["total_home_points"])
+            except (TypeError, ValueError, KeyError):
+                pass
+            try:
+                away_score = int(g["total_away_points"])
+            except (TypeError, ValueError, KeyError):
+                pass
+
+        # Game time display
+        if is_final:
+            game_time = "Final"
+        elif is_live:
+            game_time = g.get("status_display_name", "In Progress")
+        else:
+            game_time = g.get("status_display_name", "TBD")
+
+        # Odds — aggregate across all bookmakers
+        spread = ou = home_ml = away_ml = None
+        game_odds = odds_by_game.get(g.get("gameid", ""), {})
+        if game_odds:
+            home_spreads, totals, hml_vals, aml_vals = [], [], [], []
+            for book in game_odds.values():
+                try:
+                    if book.get("home_spread") not in (None, ""):
+                        home_spreads.append(float(book["home_spread"]))
+                    if book.get("total") not in (None, ""):
+                        totals.append(float(book["total"]))
+                    if book.get("home_ml") not in (None, ""):
+                        hml_vals.append(int(book["home_ml"]))
+                    if book.get("away_ml") not in (None, ""):
+                        aml_vals.append(int(book["away_ml"]))
+                except (ValueError, TypeError):
+                    continue
+
+            # Consensus spread (average, rounded to nearest 0.5)
+            if home_spreads:
+                avg = sum(home_spreads) / len(home_spreads)
+                spread = round(avg * 2) / 2
+
+            # Consensus total (most common line)
+            if totals:
+                ou = Counter(totals).most_common(1)[0][0]
+
+            # Best moneyline (most favorable for bettor = highest number)
+            if hml_vals:
+                home_ml = max(hml_vals)
+            if aml_vals:
+                away_ml = max(aml_vals)
+
+        return {
+            "home_team":   home_name,
+            "away_team":   away_name,
+            "home_id":     None,   # Yahoo team IDs differ from ESPN; skip ESPN stat lookup
+            "away_id":     None,
+            "home_rank":   home_rank,
+            "away_rank":   away_rank,
+            "home_record": home_record,
+            "away_record": away_record,
+            "spread":      spread,
+            "over_under":  ou,
+            "home_ml":     home_ml,
+            "away_ml":     away_ml,
+            "time":        game_time,
+            "home_score":  home_score,
+            "away_score":  away_score,
+            "game_status": game_status,
+        }
+
+    @classmethod
+    def _get_rank(cls, rankings_dict):
+        """Return AP poll rank (int) or 99 if unranked."""
+        if not rankings_dict or not isinstance(rankings_dict, dict):
+            return 99
+        for poll_data in rankings_dict.values():
+            if not isinstance(poll_data, dict):
+                continue
+            if poll_data.get("primary") == "true":
+                rank = poll_data.get("rank")
+                if rank and rank is not False:
+                    try:
+                        return int(rank)
+                    except (ValueError, TypeError):
+                        pass
+        return 99
+
+    @classmethod
+    def fetch_final_scores(cls, date=None):
+        """Return only completed games with final scores."""
+        games = cls.fetch_scoreboard(date=date)
+        if not games:
+            return []
+        return [g for g in games if g.get("home_score") is not None
+                                  and g.get("away_score") is not None]
+
+
+# ---------------------------------------------------------------------------
 # Team Database (hardcoded fallback)
 # ---------------------------------------------------------------------------
 
@@ -992,7 +1226,7 @@ class OutputFormatter:
             sp = f"{g['spread']:+.1f}" if g.get('spread') is not None else "N/A"
             ou = f"{g['over_under']:.1f}" if g.get('over_under') is not None else "N/A"
             ml = ""
-            if g.get("home_ml") is not None:
+            if g.get("home_ml") is not None and g.get("away_ml") is not None:
                 ml = f"{_fmt_ml(g['home_ml'])}/{_fmt_ml(g['away_ml'])}"
             print(f"{matchup:<45} {g['time']:<12} {sp:<12} {ou:<8} {ml}")
         print()
@@ -1124,7 +1358,7 @@ def _build_stats_dict(espn_stats, win_pct, is_home):
 # ---------------------------------------------------------------------------
 
 def run_auto_scan(args):
-    """Fetch today's games from ESPN (or fallback), analyze, display top plays."""
+    """Fetch today's games from Yahoo Sports / ESPN (or fallback), analyze, display top plays."""
 
     OutputFormatter.header()
 
@@ -1134,13 +1368,24 @@ def run_auto_scan(args):
     model.train(verbose=1 if args.verbose else 0)
     print("  Model trained.\n")
 
-    # 2. Fetch games
+    # 2. Fetch games — Yahoo Sports is the primary source when --yahoo is set,
+    #    otherwise ESPN is primary and Yahoo is a fallback when ESPN fails.
     print("  [2/3] Fetching today's schedule...")
     games = None
-    if not args.no_espn:
+
+    if args.yahoo:
+        print("  Fetching from Yahoo Sports...")
+        games = YahooSportsProvider.fetch_scoreboard()
+        if games:
+            print(f"  Loaded {len(games)} D-I games from Yahoo Sports.\n")
+        else:
+            print("  Yahoo Sports unavailable, trying ESPN...\n")
+
+    if games is None and not args.no_espn:
         games = ESPNDataProvider.fetch_scoreboard()
         if games:
-            print(f"  Loaded {len(games)} games from ESPN.\n")
+            src = "ESPN"
+            print(f"  Loaded {len(games)} games from {src}.\n")
         else:
             print("  ESPN unavailable, using fallback database.\n")
 
@@ -1420,6 +1665,9 @@ def main():
                         help="Number of top plays to display (default: 3)")
     parser.add_argument("--all", action="store_true",
                         help="Show all game analyses without prompting")
+    parser.add_argument("--yahoo", action="store_true",
+                        help="Use Yahoo Sports as the primary data source for scores, "
+                             "schedules, and odds (api-secure.sports.yahoo.com)")
     parser.add_argument("--no-espn", action="store_true",
                         help="Skip ESPN API, use fallback data only")
     parser.add_argument("--odds-api", action="store_true",
