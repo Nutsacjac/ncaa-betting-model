@@ -107,6 +107,78 @@ def _bankroll_tier(edge):
     return {"label": "MODERATE VALUE", "stake": "1-2% of bankroll"}
 
 
+def _pick_underdog(analyses):
+    """Find the pre-game underdog most likely to win outright per the model.
+
+    An underdog is the team getting points (positive spread from their
+    perspective) or the team with a positive moneyline.  Among all pre-game
+    underdogs the one with the highest model win probability is returned.
+    """
+    candidates = []
+    for a in analyses:
+        # Only consider pre-game matchups
+        if a.get("game_status", "STATUS_SCHEDULED") != "STATUS_SCHEDULED":
+            continue
+
+        spread = a.get("spread")
+        home_ml = a.get("home_ml")
+        away_ml = a.get("away_ml")
+
+        # Determine which side is the underdog
+        # spread is from home perspective: negative = home favored
+        dog_team = None
+        dog_prob = None
+        dog_ml = None
+
+        if spread is not None and spread != 0:
+            if spread < 0:
+                # Home favored → away is underdog
+                dog_team = a["away_team"]
+                dog_prob = a["away_win_prob"]
+                dog_ml = away_ml
+            else:
+                # Away favored → home is underdog
+                dog_team = a["home_team"]
+                dog_prob = a["home_win_prob"]
+                dog_ml = home_ml
+        elif home_ml is not None and away_ml is not None:
+            # No spread — use moneylines (positive ML = underdog)
+            if home_ml > away_ml:
+                dog_team = a["home_team"]
+                dog_prob = a["home_win_prob"]
+                dog_ml = home_ml
+            elif away_ml > home_ml:
+                dog_team = a["away_team"]
+                dog_prob = a["away_win_prob"]
+                dog_ml = away_ml
+
+        if dog_team and dog_prob is not None:
+            candidates.append({
+                "underdog": dog_team,
+                "opponent": a["away_team"] if dog_team == a["home_team"] else a["home_team"],
+                "matchup": f"{a['away_team']} @ {a['home_team']}",
+                "model_win_prob": round(dog_prob * 100, 1),
+                "moneyline": dog_ml,
+                "spread": spread,
+                "time": a.get("time", "TBD"),
+                "home_team": a["home_team"],
+                "away_team": a["away_team"],
+                "home_win_prob": a["home_win_prob"],
+                "away_win_prob": a["away_win_prob"],
+                "home_rank": a.get("home_rank", 99),
+                "away_rank": a.get("away_rank", 99),
+                "home_record": a.get("home_record", ""),
+                "away_record": a.get("away_record", ""),
+            })
+
+    if not candidates:
+        return None
+
+    # Pick the underdog with the highest model win probability
+    candidates.sort(key=lambda c: c["model_win_prob"], reverse=True)
+    return candidates[0]
+
+
 def _build_parlay(analyses):
     """Build a 3-leg parlay from the strongest spread and O/U picks."""
     candidates = []
@@ -294,6 +366,9 @@ def api_scan():
     # Build top parlay from strongest spread + O/U legs
     parlay = _build_parlay(analyses)
 
+    # Underdog of the Day: pre-game underdog with highest model win probability
+    underdog = _pick_underdog(analyses)
+
     return jsonify(_sanitize({
         "source": source,
         "total_games": len(games),
@@ -301,6 +376,7 @@ def api_scan():
         "top_plays": top_plays,
         "all_games": analyses,
         "parlay": parlay,
+        "underdog": underdog,
     }))
 
 
