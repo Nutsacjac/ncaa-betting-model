@@ -1137,8 +1137,15 @@ class BettingAnalyzer:
         if game.get("spread") is not None:
             spread = float(game["spread"])
             result["spread"] = spread
-            spread_impl_prob = np.clip(0.5 + spread / 50, 0, 1)
-            spread_edge = home_win_prob - spread_impl_prob
+            # ATS edge: compare predicted margin to the spread requirement.
+            # For home to cover: predicted_margin must exceed -spread.
+            # predicted_margin is bounded ~±10 by the logistic model, so large
+            # spreads (>10) will naturally show the underdog as the value side.
+            # P(home covers) = logistic((predicted_margin + spread) / 8)
+            # edge vs the market's implied ~50% for each side.
+            margin_diff = predicted_margin + spread
+            spread_cover_prob = 1 / (1 + np.exp(-margin_diff / 8))
+            spread_edge = spread_cover_prob - 0.5
             result["spread_edge"] = spread_edge
             if abs(spread_edge) >= EDGE_THRESHOLD_SPREAD:
                 if spread_edge > 0:
