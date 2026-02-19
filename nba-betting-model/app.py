@@ -14,6 +14,7 @@ from nba_model import (
     NBABettingModel,
     TeamDatabase,
     TheOddsAPIProvider,
+    YahooSportsProvider,
     _build_stats_dict,
     _fmt_ml,
     _resolve_team_stats,
@@ -313,6 +314,16 @@ def api_scan():
         else:
             games = TeamDatabase.generate_fallback_games()
             source = "fallback"
+
+    elif requested_source == "yahoo":
+        games = YahooSportsProvider.fetch_scoreboard()
+        source = "yahoo"
+        if not games:
+            games = ESPNDataProvider.fetch_scoreboard()
+            source = "espn" if games else "fallback"
+            if not games:
+                games = TeamDatabase.generate_fallback_games()
+                source = "fallback"
 
     else:
         games = TeamDatabase.generate_fallback_games()

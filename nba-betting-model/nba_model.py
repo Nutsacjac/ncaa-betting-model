@@ -521,6 +521,192 @@ class TheOddsAPIProvider:
 
 
 # ---------------------------------------------------------------------------
+# Yahoo Sports Data Provider
+# ---------------------------------------------------------------------------
+
+class YahooSportsProvider:
+    """Fetch live NBA games and odds from Yahoo Sports' internal scoreboard API."""
+
+    BASE_URL = "https://api-secure.sports.yahoo.com/v1/editorial/s/scoreboard"
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://sports.yahoo.com/",
+        "Origin": "https://sports.yahoo.com",
+    }
+    _cache = {}  # {date_str: (timestamp, data)}
+
+    @classmethod
+    def fetch_scoreboard(cls, date=None):
+        """Fetch NBA games for the given date (default: today).
+
+        Returns a list of game dicts matching the ESPN schema, or None on failure.
+        """
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+
+        if date in cls._cache:
+            ts, data = cls._cache[date]
+            if time.time() - ts < ESPN_CACHE_TTL:
+                logging.info("Yahoo Sports scoreboard served from cache")
+                return data
+
+        try:
+            resp = requests.get(
+                cls.BASE_URL,
+                params={"leagues": "nba", "date": date},
+                headers=cls.HEADERS,
+                timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:
+            logging.warning("Yahoo Sports request failed: %s", e)
+            return None
+
+        service = payload.get("service", {}).get("scoreboard", {})
+        raw_games = service.get("games", {})
+        teams = service.get("teams", {})
+        records = service.get("teamrecord", {})
+        rankings = service.get("teamrankings", {})
+        odds_by_game = service.get("gameodds", {})
+
+        if not raw_games:
+            return None
+
+        games = []
+        for g in raw_games.values():
+            try:
+                game = cls._parse_game(g, teams, records, rankings, odds_by_game)
+                if game:
+                    games.append(game)
+            except Exception:
+                continue
+
+        cls._cache[date] = (time.time(), games if games else None)
+        return games if games else None
+
+    @classmethod
+    def _parse_game(cls, g, teams, records, rankings, odds_by_game):
+        """Parse a single Yahoo Sports game dict."""
+        home_id_str = str(g.get("home_team_id", ""))
+        away_id_str = str(g.get("away_team_id", ""))
+
+        home_info = teams.get(home_id_str, {})
+        away_info = teams.get(away_id_str, {})
+
+        home_team = home_info.get("full_name", home_info.get("name", "Unknown"))
+        away_team = away_info.get("full_name", away_info.get("name", "Unknown"))
+
+        # Records
+        home_rec = records.get(home_id_str, {})
+        away_rec = records.get(away_id_str, {})
+        home_record = f"{home_rec.get('wins', 0)}-{home_rec.get('losses', 0)}" if home_rec else ""
+        away_record = f"{away_rec.get('wins', 0)}-{away_rec.get('losses', 0)}" if away_rec else ""
+
+        # NBA doesn't use AP poll rankings; set to 99
+        home_rank = 99
+        away_rank = 99
+
+        # Game time / status
+        status = g.get("status", "pregame")
+        start_time = g.get("start_time", "")
+        try:
+            dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            game_time = dt.strftime("%-m/%-d - %-I:%M %p") + " EST"
+        except Exception:
+            game_time = "TBD"
+
+        if status in ("inprogress", "halftime"):
+            game_status = "STATUS_IN_PROGRESS"
+        elif status in ("final", "final_ot"):
+            game_status = "STATUS_FINAL"
+        else:
+            game_status = "STATUS_SCHEDULED"
+
+        # Scores
+        home_score = away_score = None
+        if game_status == "STATUS_FINAL":
+            try:
+                home_score = int(g.get("home_points", 0))
+                away_score = int(g.get("away_points", 0))
+            except (ValueError, TypeError):
+                pass
+
+        # Odds — aggregate across bookmakers
+        game_id = str(g.get("game_id", ""))
+        spread = over_under = home_ml = away_ml = None
+
+        game_odds = odds_by_game.get(game_id, {})
+        spreads, totals, home_mls, away_mls = [], [], [], []
+        for book_odds in game_odds.values():
+            s = book_odds.get("home_spread")
+            if s is not None:
+                try:
+                    spreads.append(float(s))
+                except (ValueError, TypeError):
+                    pass
+            t = book_odds.get("total")
+            if t is not None:
+                try:
+                    totals.append(float(t))
+                except (ValueError, TypeError):
+                    pass
+            hml = book_odds.get("home_ml")
+            if hml is not None:
+                try:
+                    home_mls.append(int(hml))
+                except (ValueError, TypeError):
+                    pass
+            aml = book_odds.get("away_ml")
+            if aml is not None:
+                try:
+                    away_mls.append(int(aml))
+                except (ValueError, TypeError):
+                    pass
+
+        if spreads:
+            raw_avg = sum(spreads) / len(spreads)
+            spread = round(raw_avg * 2) / 2  # round to nearest 0.5
+        if totals:
+            most_common = Counter(totals).most_common(1)[0][0]
+            over_under = most_common
+        if home_mls:
+            home_ml = max(home_mls, key=lambda x: abs(x))
+        if away_mls:
+            away_ml = max(away_mls, key=lambda x: abs(x))
+
+        return {
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_id": None,
+            "away_id": None,
+            "home_rank": home_rank,
+            "away_rank": away_rank,
+            "home_record": home_record,
+            "away_record": away_record,
+            "spread": spread,
+            "over_under": over_under,
+            "home_ml": home_ml,
+            "away_ml": away_ml,
+            "time": game_time,
+            "home_score": home_score,
+            "away_score": away_score,
+            "game_status": game_status,
+        }
+
+    @classmethod
+    def fetch_final_scores(cls, date=None):
+        """Return only games that have final scores."""
+        games = cls.fetch_scoreboard(date)
+        if not games:
+            return None
+        finals = [g for g in games if g.get("home_score") is not None and g.get("away_score") is not None]
+        return finals if finals else None
+
+
+# ---------------------------------------------------------------------------
 # Team Database (hardcoded fallback — all 30 NBA teams)
 # ---------------------------------------------------------------------------
 

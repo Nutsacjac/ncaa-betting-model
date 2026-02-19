@@ -390,6 +390,7 @@
     <div class="toggle-btns">
       <button class="toggle-btn active" data-source="espn">ESPN Live</button>
       <button class="toggle-btn" data-source="odds-api">Odds API</button>
+      <button class="toggle-btn" data-source="yahoo">Yahoo Sports</button>
       <button class="toggle-btn" data-source="fallback">Fallback DB</button>
     </div>
     <button class="refresh-btn" id="refresh-btn" title="Refresh ESPN data">
@@ -618,7 +619,9 @@ function runScan() {
       document.getElementById('scan-results').style.display = '';
 
       const srcLabel = data.source === 'espn' ? 'Live ESPN data'
+        : data.source === 'yahoo' ? 'Yahoo Sports (live NBA schedule &amp; odds)'
         : data.source === 'odds-api' ? 'The Odds API (live bookmaker lines)'
+        : currentSource === 'yahoo' ? 'Fallback database (Yahoo Sports unavailable)'
         : currentSource === 'espn' ? 'Fallback database (ESPN unavailable)'
         : currentSource === 'odds-api' ? 'Fallback database (Odds API unavailable)'
         : 'Fallback database';
