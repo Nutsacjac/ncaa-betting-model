@@ -252,7 +252,7 @@ def api_scan():
     Query params:
       source  -- "espn" (default), "odds-api", or "fallback"
     """
-    requested_source = request.args.get("source", "espn")
+    requested_source = request.args.get("source", "yahoo")
 
     # Auto-resolve any pending picks with final scores
     _auto_resolve_pending()
