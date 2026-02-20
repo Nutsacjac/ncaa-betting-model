@@ -61,6 +61,7 @@ ODDS_CACHE_TTL = 120  # 2 minutes for Odds API data (odds change faster)
 
 EDGE_THRESHOLD_SPREAD = 0.03   # 3% min edge for spread
 EDGE_THRESHOLD_ML = 0.03       # 3% min edge for moneyline
+MAX_ML_EDGE = 0.25             # 25% max edge — higher signals bad stats/model noise
 OU_POINTS_THRESHOLD = 3        # 3+ points for O/U
 
 BANKROLL_TIERS = [
@@ -1200,11 +1201,12 @@ class BettingAnalyzer:
             away_impl = _ml_to_implied_prob(away_ml)
             home_ml_edge = home_win_prob - home_impl
             away_ml_edge = away_win_prob - away_impl
-            if home_ml_edge > away_ml_edge and home_ml_edge >= EDGE_THRESHOLD_ML:
+            if (home_ml_edge > away_ml_edge
+                    and EDGE_THRESHOLD_ML <= home_ml_edge <= MAX_ML_EDGE):
                 result["ml_edge"] = home_ml_edge
                 result["ml_pick"] = f"{game['home_team']} ML ({_fmt_ml(home_ml)})"
                 edges.append(("ML", home_ml_edge, result["ml_pick"]))
-            elif away_ml_edge >= EDGE_THRESHOLD_ML:
+            elif EDGE_THRESHOLD_ML <= away_ml_edge <= MAX_ML_EDGE:
                 result["ml_edge"] = away_ml_edge
                 result["ml_pick"] = f"{game['away_team']} ML ({_fmt_ml(away_ml)})"
                 edges.append(("ML", away_ml_edge, result["ml_pick"]))
