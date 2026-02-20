@@ -357,6 +357,41 @@
   .parlay-stat-value.negative{color:#e84057}
   .parlay-empty{color:#6b8399;font-size:.85rem;text-align:center;padding:1rem}
 
+  /* Yesterday's Results */
+  .yesterday-bar{
+    background:#131f2b;border:1px solid #1e3a5f;border-radius:10px;
+    padding:.85rem 1.1rem;margin-bottom:1.2rem;
+  }
+  .yesterday-header{
+    display:flex;align-items:center;gap:.8rem;margin-bottom:.7rem;flex-wrap:wrap;
+  }
+  .yesterday-title{font-size:.82rem;font-weight:700;color:#8ba4b8;text-transform:uppercase;letter-spacing:.5px}
+  .yesterday-date{font-size:.75rem;color:#3d5a73}
+  .yesterday-record{
+    font-size:.9rem;font-weight:700;color:#fff;
+    background:#1a2f42;border-radius:6px;padding:.25rem .75rem;margin-left:auto;
+  }
+  .yesterday-record .w{color:#00d4aa}
+  .yesterday-record .l{color:#e84057}
+  .yesterday-record .pct{color:#6b8399;font-size:.78rem;margin-left:.3rem}
+  .yesterday-picks{display:flex;flex-direction:column;gap:.4rem}
+  .yday-pick{
+    display:flex;align-items:center;gap:.6rem;font-size:.8rem;
+    padding:.35rem .5rem;border-radius:6px;background:#0f1923;
+  }
+  .yday-result{
+    width:36px;text-align:center;font-size:.7rem;font-weight:700;
+    padding:.15rem 0;border-radius:4px;flex-shrink:0;
+  }
+  .yday-result.won{background:rgba(0,212,170,.18);color:#00d4aa}
+  .yday-result.lost{background:rgba(232,64,87,.18);color:#e84057}
+  .yday-result.push{background:rgba(107,131,153,.18);color:#6b8399}
+  .yday-result.pending{background:rgba(240,160,48,.18);color:#f0a030}
+  .yday-matchup{color:#c7d5e0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .yday-pick-text{color:#8ba4b8;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .yday-market{font-size:.68rem;color:#3d5a73;background:#162433;padding:.1rem .4rem;border-radius:3px;flex-shrink:0}
+  .yday-score{font-size:.75rem;color:#6b8399;flex-shrink:0}
+
   /* Responsive */
   @media(max-width:500px){
     .card-grid{grid-template-columns:1fr}
@@ -397,6 +432,16 @@
       <svg viewBox="0 0 24 24"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
     </button>
   </div>
+  <!-- Yesterday's Results -->
+  <div class="yesterday-bar" id="yesterday-bar" style="display:none">
+    <div class="yesterday-header">
+      <span class="yesterday-title">Yesterday's Results</span>
+      <span class="yesterday-date" id="yesterday-date"></span>
+      <span class="yesterday-record" id="yesterday-record"></span>
+    </div>
+    <div class="yesterday-picks" id="yesterday-picks"></div>
+  </div>
+
   <div class="spinner-wrap" id="scan-spinner">
     <div class="spinner"></div>
     <p>Fetching games &amp; analyzing markets...</p>
@@ -530,6 +575,51 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 // Fetch team names for autocomplete
 fetch('/api/teams').then(r => r.json()).then(names => { teamNames = names; });
+
+// ---- Yesterday's Results ----
+function loadYesterday() {
+  fetch('/api/picks/yesterday')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.total) return;
+      const bar = document.getElementById('yesterday-bar');
+      bar.style.display = '';
+
+      const d = new Date(data.date + 'T12:00:00');
+      document.getElementById('yesterday-date').textContent =
+        d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+
+      const recEl = document.getElementById('yesterday-record');
+      if (data.wins + data.losses + data.pushes === 0) {
+        recEl.innerHTML = `<span style="color:#f0a030">${data.pending} pending</span>`;
+      } else {
+        const pct = data.win_rate !== null ? ` <span class="pct">${data.win_rate}%</span>` : '';
+        recEl.innerHTML =
+          `<span class="w">${data.wins}W</span>&nbsp;–&nbsp;<span class="l">${data.losses}L</span>` +
+          (data.pushes ? `&nbsp;–&nbsp;<span style="color:#6b8399">${data.pushes}P</span>` : '') +
+          pct;
+      }
+
+      const container = document.getElementById('yesterday-picks');
+      container.innerHTML = '';
+      data.picks.forEach(p => {
+        const score = (p.home_score != null && p.away_score != null)
+          ? `${p.away_team.split(' ').pop()} ${p.away_score}–${p.home_score} ${p.home_team.split(' ').pop()}`
+          : '';
+        const row = document.createElement('div');
+        row.className = 'yday-pick';
+        row.innerHTML =
+          `<span class="yday-result ${p.status}">${p.status.toUpperCase()}</span>` +
+          `<span class="yday-matchup">${p.away_team} @ ${p.home_team}</span>` +
+          `<span class="yday-pick-text">${p.best_pick || '—'}</span>` +
+          `<span class="yday-market">${p.best_market || ''}</span>` +
+          (score ? `<span class="yday-score">${score}</span>` : '');
+        container.appendChild(row);
+      });
+    })
+    .catch(() => {});
+}
+loadYesterday();
 
 // Data source toggle
 document.querySelectorAll('.toggle-btn').forEach(btn => {

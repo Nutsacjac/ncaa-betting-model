@@ -481,6 +481,31 @@ def api_save_pick():
     return jsonify(_sanitize(results))
 
 
+@app.route("/api/picks/yesterday")
+def api_picks_yesterday():
+    """Yesterday's picks with resolution status and summary stats."""
+    from datetime import date, timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    history = picks_db.get_history(date_from=yesterday, date_to=yesterday, limit=200)
+    picks = history["picks"]
+    resolved = [p for p in picks if p["status"] in ("won", "lost", "push")]
+    wins = sum(1 for p in resolved if p["status"] == "won")
+    losses = sum(1 for p in resolved if p["status"] == "lost")
+    pushes = sum(1 for p in resolved if p["status"] == "push")
+    pending = [p for p in picks if p["status"] == "pending"]
+    win_rate = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else None
+    return jsonify(_sanitize({
+        "date": yesterday,
+        "picks": picks,
+        "total": len(picks),
+        "wins": wins,
+        "losses": losses,
+        "pushes": pushes,
+        "pending": len(pending),
+        "win_rate": win_rate,
+    }))
+
+
 @app.route("/api/picks/history")
 def api_picks_history():
     """Paginated pick history with filters."""
