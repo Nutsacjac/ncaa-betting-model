@@ -363,7 +363,9 @@ def api_scan():
 
     top_plays = [
         a for a in analyses
-        if a["best_edge"] > 0 and a.get("game_status", "STATUS_SCHEDULED") == "STATUS_SCHEDULED"
+        if a["best_edge"] > 0
+        and a.get("game_status", "STATUS_SCHEDULED") == "STATUS_SCHEDULED"
+        and not (a.get("best_market") == "Spread" and abs(a.get("spread") or 0) > 14)
     ][:5]
 
     # Build top parlay from strongest spread + O/U legs
