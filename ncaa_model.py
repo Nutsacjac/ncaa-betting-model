@@ -73,6 +73,154 @@ BANKROLL_TIERS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Conference Strength
+# ---------------------------------------------------------------------------
+# Relative strength factor vs D-I average (1.0).
+# Applied to win_pct: a .700 record in the Big 12 (1.17) means more than
+# .700 in the Sun Belt (0.73). Formula: adj = 0.5 + (raw - 0.5) * factor
+
+CONFERENCE_STRENGTH = {
+    # Power conferences
+    "SEC":              1.18,
+    "Big 12":           1.17,
+    "Big Ten":          1.15,
+    "ACC":              1.13,
+    "Big East":         1.10,
+    # Strong mid-majors
+    "American Athletic": 0.95,
+    "West Coast":       0.93,
+    "Mountain West":    0.92,
+    "Atlantic 10":      0.90,
+    # Mid-majors
+    "Missouri Valley":  0.85,
+    "Colonial Athletic Association": 0.82,
+    "Colonial Athletic": 0.82,
+    "Conference USA":   0.80,
+    "Southern":         0.78,
+    "Mid-American":     0.77,
+    "Ohio Valley":      0.74,
+    "Horizon":          0.74,
+    "Big West":         0.75,
+    "Sun Belt":         0.73,
+    "Summit League":    0.72,
+    "ASUN":             0.72,
+    "Atlantic Sun":     0.72,
+    "Western Athletic": 0.70,
+    "Big Sky":          0.69,
+    "America East":     0.68,
+    "Ivy":              0.68,
+    "Ivy League":       0.68,
+    "Patriot":          0.67,
+    "Metro Atlantic Athletic": 0.66,
+    "MAAC":             0.66,
+    "Northeast":        0.64,
+    "Southland":        0.63,
+    "Big South":        0.63,
+    "Southwestern Athletic": 0.60,
+    "SWAC":             0.60,
+    "Mid-Eastern Athletic": 0.60,
+    "MEAC":             0.60,
+}
+
+# Team name → conference. Covers major/frequent betting-market teams.
+# Used as the primary lookup (no extra API call required).
+TEAM_CONFERENCE_MAP = {
+    # ACC
+    "Duke": "ACC", "North Carolina": "ACC", "UNC": "ACC",
+    "Virginia": "ACC", "Florida State": "ACC", "Louisville": "ACC",
+    "Syracuse": "ACC", "Pittsburgh": "ACC", "Pitt": "ACC",
+    "Notre Dame": "ACC", "Georgia Tech": "ACC", "Clemson": "ACC",
+    "Boston College": "ACC", "Wake Forest": "ACC", "Miami": "ACC",
+    "Virginia Tech": "ACC", "NC State": "ACC", "North Carolina State": "ACC",
+    "SMU": "ACC", "Stanford": "ACC", "Cal": "ACC", "California": "ACC",
+    "Oregon": "ACC", "Washington": "ACC",
+    # Big Ten
+    "Michigan State": "Big Ten", "Michigan": "Big Ten",
+    "Ohio State": "Big Ten", "Indiana": "Big Ten", "Illinois": "Big Ten",
+    "Iowa": "Big Ten", "Wisconsin": "Big Ten", "Purdue": "Big Ten",
+    "Penn State": "Big Ten", "Minnesota": "Big Ten",
+    "Northwestern": "Big Ten", "Nebraska": "Big Ten",
+    "Maryland": "Big Ten", "Rutgers": "Big Ten",
+    "UCLA": "Big Ten", "USC": "Big Ten",
+    "Oregon State": "Big Ten", "Washington State": "Big Ten",
+    # Big 12
+    "Kansas": "Big 12", "Texas": "Big 12", "Baylor": "Big 12",
+    "Iowa State": "Big 12", "Kansas State": "Big 12",
+    "Texas Tech": "Big 12", "TCU": "Big 12",
+    "Oklahoma State": "Big 12", "West Virginia": "Big 12",
+    "BYU": "Big 12", "Houston": "Big 12", "UCF": "Big 12",
+    "Central Florida": "Big 12", "Utah": "Big 12",
+    "Arizona": "Big 12", "Arizona State": "Big 12", "Colorado": "Big 12",
+    "Cincinnati": "Big 12",
+    # SEC
+    "Kentucky": "SEC", "Tennessee": "SEC", "Alabama": "SEC",
+    "Auburn": "SEC", "Florida": "SEC", "Mississippi State": "SEC",
+    "Ole Miss": "SEC", "Mississippi": "SEC", "LSU": "SEC",
+    "Arkansas": "SEC", "Georgia": "SEC", "South Carolina": "SEC",
+    "Vanderbilt": "SEC", "Texas A&M": "SEC", "Missouri": "SEC",
+    "Oklahoma": "SEC",
+    # Big East
+    "UConn": "Big East", "Connecticut": "Big East",
+    "Villanova": "Big East", "Marquette": "Big East",
+    "Creighton": "Big East", "Providence": "Big East",
+    "Seton Hall": "Big East", "St. John's": "Big East",
+    "Georgetown": "Big East", "Butler": "Big East",
+    "Xavier": "Big East", "DePaul": "Big East",
+    # Mountain West
+    "San Diego State": "Mountain West", "Utah State": "Mountain West",
+    "UNLV": "Mountain West", "Boise State": "Mountain West",
+    "Colorado State": "Mountain West", "Wyoming": "Mountain West",
+    "New Mexico": "Mountain West", "Fresno State": "Mountain West",
+    "Nevada": "Mountain West", "Air Force": "Mountain West",
+    "San Jose State": "Mountain West", "Hawaii": "Mountain West",
+    # American Athletic
+    "Memphis": "American Athletic", "Wichita State": "American Athletic",
+    "Temple": "American Athletic", "Tulsa": "American Athletic",
+    "Tulane": "American Athletic", "South Florida": "American Athletic",
+    "East Carolina": "American Athletic", "North Texas": "American Athletic",
+    "UTSA": "American Athletic", "Florida Atlantic": "American Athletic",
+    "Charlotte": "American Athletic", "UAB": "American Athletic",
+    "Rice": "American Athletic",
+    # West Coast Conference
+    "Gonzaga": "West Coast", "Saint Mary's": "West Coast",
+    "San Francisco": "West Coast", "Pacific": "West Coast",
+    "Santa Clara": "West Coast", "Loyola Marymount": "West Coast",
+    "Portland": "West Coast", "Pepperdine": "West Coast",
+    "San Diego": "West Coast",
+    # Atlantic 10
+    "Dayton": "Atlantic 10", "VCU": "Atlantic 10",
+    "Saint Louis": "Atlantic 10", "Rhode Island": "Atlantic 10",
+    "George Mason": "Atlantic 10", "La Salle": "Atlantic 10",
+    "Saint Joseph's": "Atlantic 10", "Duquesne": "Atlantic 10",
+    "Fordham": "Atlantic 10", "UMass": "Atlantic 10",
+    "Massachusetts": "Atlantic 10", "George Washington": "Atlantic 10",
+    "Richmond": "Atlantic 10", "Davidson": "Atlantic 10",
+    "Loyola Chicago": "Atlantic 10",
+    # Missouri Valley
+    "Drake": "Missouri Valley", "Illinois State": "Missouri Valley",
+    "Indiana State": "Missouri Valley", "Bradley": "Missouri Valley",
+    "Evansville": "Missouri Valley", "Northern Iowa": "Missouri Valley",
+    "Murray State": "Missouri Valley", "Missouri State": "Missouri Valley",
+    "Southern Illinois": "Missouri Valley", "Belmont": "Missouri Valley",
+    "Valparaiso": "Missouri Valley", "UIC": "Missouri Valley",
+    # Sun Belt
+    "Troy": "Sun Belt", "Louisiana": "Sun Belt", "ULL": "Sun Belt",
+    "App State": "Sun Belt", "Appalachian State": "Sun Belt",
+    "Georgia Southern": "Sun Belt", "Georgia State": "Sun Belt",
+    "South Alabama": "Sun Belt", "Texas State": "Sun Belt",
+    "Little Rock": "Sun Belt", "Arkansas State": "Sun Belt",
+    "Old Dominion": "Sun Belt", "James Madison": "Sun Belt",
+    "Marshall": "Sun Belt", "Southern Miss": "Sun Belt",
+    "Louisiana Monroe": "Sun Belt",
+    # ASUN
+    "Liberty": "ASUN", "Jacksonville State": "ASUN",
+    "Eastern Kentucky": "ASUN", "Lipscomb": "ASUN",
+    "North Alabama": "ASUN", "Queens": "ASUN",
+    "Florida Gulf Coast": "ASUN", "FGCU": "ASUN",
+    "Austin Peay": "ASUN", "Kennesaw State": "ASUN",
+}
+
+# ---------------------------------------------------------------------------
 # ESPN Data Provider
 # ---------------------------------------------------------------------------
 
@@ -1137,6 +1285,8 @@ class BettingAnalyzer:
             "confidence": abs(home_win_prob - 0.5) * 200,
             "home_b2b": home_b2b,
             "away_b2b": away_b2b,
+            "home_conference": home_stats.get("conference"),
+            "away_conference": away_stats.get("conference"),
             # Market results filled below
             "spread": None, "spread_edge": None, "spread_pick": None,
             "over_under": None, "predicted_total": None, "ou_edge": None, "ou_pick": None,
@@ -1538,23 +1688,96 @@ def _is_b2b(team_name, yesterday_teams):
     return False
 
 
+_conf_cache: dict = {}  # team_id → conference name (session-level cache)
+
+
+def _get_conference(team_name, team_id=None):
+    """Return (conference_name, strength_factor) for a team.
+
+    Priority: hardcoded map → partial-name match → ESPN teams API → default.
+    """
+    # 1. Exact match in hardcoded map
+    conf = TEAM_CONFERENCE_MAP.get(team_name)
+    if conf:
+        return conf, CONFERENCE_STRENGTH.get(conf, 1.0)
+
+    # 2. Partial match (handles "Loyola Chicago Ramblers" vs "Loyola Chicago")
+    tl = team_name.lower()
+    for mapped_name, mapped_conf in TEAM_CONFERENCE_MAP.items():
+        ml = mapped_name.lower()
+        if ml in tl or tl in ml:
+            return mapped_conf, CONFERENCE_STRENGTH.get(mapped_conf, 1.0)
+
+    # 3. ESPN teams endpoint (one-time per team_id, cached for session)
+    if team_id:
+        if team_id not in _conf_cache:
+            url = (
+                "https://site.api.espn.com/apis/site/v2/sports/basketball"
+                f"/mens-college-basketball/teams/{team_id}"
+            )
+            data = ESPNDataProvider._request_with_retry(url)
+            if data:
+                conf_data = data.get("team", {}).get("conference", {})
+                _conf_cache[team_id] = conf_data.get("name")
+            else:
+                _conf_cache[team_id] = None
+        conf = _conf_cache[team_id]
+        if conf:
+            return conf, CONFERENCE_STRENGTH.get(conf, 1.0)
+
+    return None, 1.0  # unknown — neutral
+
+
+def _apply_conference_adjustment(stats, conf_strength):
+    """Scale win-rate-based features by conference strength.
+
+    A .700 record in the Big 12 (1.17) is worth more than .700 in the
+    Sun Belt (0.73). The formula shifts the deviation from .500:
+        adjusted = 0.5 + (raw − 0.5) × conf_strength
+    Efficiency ratings get a milder ±4-pt adjustment at the extremes.
+    """
+    if conf_strength == 1.0:
+        return stats
+
+    for key in ('win_pct', 'home_win', 'away_win', 'form'):
+        if key in stats:
+            raw = stats[key]
+            stats[key] = float(np.clip(0.5 + (raw - 0.5) * conf_strength, 0.05, 0.95))
+
+    # Mild efficiency-rating adjustment (max ±4 pts at strength extremes)
+    conf_pts = (conf_strength - 1.0) * 4.0
+    if 'off_rtg' in stats:
+        stats['off_rtg'] = round(stats['off_rtg'] + conf_pts, 1)
+    if 'def_rtg' in stats:
+        stats['def_rtg'] = round(stats['def_rtg'] - conf_pts, 1)
+
+    return stats
+
+
 def _resolve_team_stats(team_name, team_id, record, is_home, use_espn=True):
-    """Try ESPN stats, then fallback database."""
+    """Try ESPN stats, then fallback database, with conference strength applied."""
     win_pct = _record_to_win_pct(record) if record else 0.5
+    conf_name, conf_strength = _get_conference(team_name, team_id if use_espn else None)
 
     # Try ESPN
     if use_espn and team_id:
         espn_stats = ESPNDataProvider.fetch_team_stats(team_id)
         if espn_stats:
-            return _build_stats_dict(espn_stats, win_pct, is_home)
+            stats = _build_stats_dict(espn_stats, win_pct, is_home)
+            _apply_conference_adjustment(stats, conf_strength)
+            stats['conference'] = conf_name
+            return stats
 
     # Fallback to hardcoded DB
     fb = TeamDatabase.lookup(team_name)
     if fb:
-        return fb
+        stats = dict(fb)
+        _apply_conference_adjustment(stats, conf_strength)
+        stats['conference'] = conf_name
+        return stats
 
     # Last resort: generic stats
-    return {
+    stats = {
         'ppg': 72, 'fg_pct': 44, '3p_pct': 33, 'ft_pct': 70,
         'reb': 35, 'ast': 13, 'to': 13, 'stl': 6, 'blk': 3,
         'win_pct': win_pct,
@@ -1562,6 +1785,9 @@ def _resolve_team_stats(team_name, team_id, record, is_home, use_espn=True):
         'away_win': max(0.0, win_pct - 0.05),
         'pace': 68, 'off_rtg': 105, 'def_rtg': 102, 'form': 0.5,
     }
+    _apply_conference_adjustment(stats, conf_strength)
+    stats['conference'] = conf_name
+    return stats
 
 
 # ---------------------------------------------------------------------------

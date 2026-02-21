@@ -939,7 +939,7 @@ function gameCard(g, highlight, showSave) {
         <div class="matchup">${awayRank}${esc(g.away_team)}${awayB2b} <span style="color:#6b8399">@</span> ${homeRank}${esc(g.home_team)}${homeB2b}</div>
         <div class="game-time">${esc(g.time)}</div>
       </div>
-      ${g.home_record || g.away_record ? `<div class="records">${esc(g.away_record)} / ${esc(g.home_record)}</div>` : ''}
+      ${g.home_record || g.away_record ? `<div class="records">${esc(g.away_record)} / ${esc(g.home_record)}${g.away_conference || g.home_conference ? ` &nbsp;<span style="color:#3d5a73;font-size:.7rem">${esc(g.away_conference||'')}${g.away_conference&&g.home_conference?' / ':''}${esc(g.home_conference||'')}</span>` : ''}</div>` : ''}
       <div class="prob-bar-wrap">
         <div class="prob-labels">
           <span class="home">${esc(g.home_team)} ${hwp}%</span>
