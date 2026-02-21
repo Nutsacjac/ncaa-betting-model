@@ -69,6 +69,10 @@
   .game-time{font-size:.75rem;color:#6b8399;background:#0f1923;padding:.25rem .6rem;border-radius:4px}
   .records{font-size:.75rem;color:#6b8399;margin-bottom:.8rem}
   .b2b-badge{font-size:.68rem;font-weight:700;background:rgba(232,64,87,.2);color:#e84057;padding:.1rem .4rem;border-radius:3px;vertical-align:middle;margin-left:.3rem}
+  .form-dots{display:inline-flex;gap:.2rem;margin-left:.5rem;vertical-align:middle}
+  .form-dot{display:inline-block;font-size:.6rem;font-weight:800;width:1.3rem;text-align:center;padding:.1rem 0;border-radius:3px}
+  .form-w{background:rgba(0,212,170,.18);color:#00d4aa}
+  .form-l{background:rgba(232,64,87,.18);color:#e84057}
 
   /* Prob bar */
   .prob-bar-wrap{margin:.8rem 0}
@@ -938,8 +942,8 @@ function gameCard(g, highlight, showSave) {
       ${g.home_record || g.away_record ? `<div class="records">${esc(g.away_record)} / ${esc(g.home_record)}</div>` : ''}
       <div class="prob-bar-wrap">
         <div class="prob-labels">
-          <span class="home">${esc(g.home_team)} ${hwp}%</span>
-          <span class="away">${esc(g.away_team)} ${awp}%</span>
+          <span class="home">${esc(g.home_team)} ${hwp}%${formDots(g.home_form_str)}</span>
+          <span class="away">${esc(g.away_team)} ${awp}%${formDots(g.away_form_str)}</span>
         </div>
         <div class="prob-bar">
           <div class="home-fill" style="width:${hwp}%"></div>
@@ -982,6 +986,12 @@ function marketRow(label, value, pick, edge, edgeCls) {
 function fmtSpread(s) { return (s >= 0 ? '+' : '') + s.toFixed(1); }
 function fmtML(ml) { return (ml >= 0 ? '+' : '') + ml; }
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function formDots(str) {
+  if (!str) return '';
+  return '<span class="form-dots">' +
+    str.split('').map(c => `<span class="form-dot ${c==='W'?'form-w':'form-l'}">${c}</span>`).join('') +
+    '</span>';
+}
 function esc4attr(s) { return s.replace(/&/g,'&amp;').replace(/'/g,'&#39;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ---- Parlay Renderer ----

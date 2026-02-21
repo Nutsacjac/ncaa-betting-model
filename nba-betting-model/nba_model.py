@@ -297,6 +297,55 @@ class ESPNDataProvider:
         }
 
     @staticmethod
+    def fetch_recent_form(team_id, n_games=5):
+        """Return (form_score, results_str) for a team's last n completed games.
+
+        form_score: 0.0-1.0 exponentially-weighted win rate, most recent = highest weight.
+        results_str: e.g. "WLWWW" oldest-to-newest.
+        Returns (None, None) on failure.
+        """
+        url = (
+            "https://site.api.espn.com/apis/site/v2/sports/basketball"
+            f"/nba/teams/{team_id}/schedule"
+        )
+        cache_key = f"form:{team_id}:{n_games}"
+        cached = ESPNDataProvider._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        data = ESPNDataProvider._request_with_retry(url)
+        if not data:
+            ESPNDataProvider._set_cache(cache_key, (None, None))
+            return None, None
+
+        results = []
+        for event in data.get("events", []):
+            try:
+                comp = event["competitions"][0]
+                if not comp.get("status", {}).get("type", {}).get("completed"):
+                    continue
+                for competitor in comp.get("competitors", []):
+                    if str(competitor.get("id")) == str(team_id):
+                        results.append(1 if competitor.get("winner") else 0)
+                        break
+            except (KeyError, IndexError):
+                continue
+
+        recent = results[-n_games:] if results else []
+        if not recent:
+            ESPNDataProvider._set_cache(cache_key, (None, None))
+            return None, None
+
+        decay = 0.7
+        weights = [decay ** (len(recent) - 1 - i) for i in range(len(recent))]
+        form_score = round(sum(r * w for r, w in zip(recent, weights)) / sum(weights), 3)
+        results_str = "".join("W" if r else "L" for r in recent)
+
+        out = (form_score, results_str)
+        ESPNDataProvider._set_cache(cache_key, out)
+        return out
+
+    @staticmethod
     def search_team(name):
         """Search ESPN for a team by name. Returns (team_id, display_name) or None."""
         url = (
@@ -1161,6 +1210,8 @@ class BettingAnalyzer:
             "confidence": abs(home_win_prob - 0.5) * 200,
             "home_b2b": home_b2b,
             "away_b2b": away_b2b,
+            "home_form_str": home_stats.get("form_str"),
+            "away_form_str": away_stats.get("form_str"),
             "spread": None, "spread_edge": None, "spread_pick": None,
             "over_under": None, "predicted_total": None, "ou_edge": None, "ou_pick": None,
             "home_ml": None, "away_ml": None, "ml_edge": None, "ml_pick": None,
@@ -1535,27 +1586,40 @@ def _is_b2b(team_name, yesterday_teams):
 
 
 def _resolve_team_stats(team_name, team_id, record, is_home, use_espn=True):
-    """Try ESPN stats, then fallback database."""
+    """Resolve team stats with real recent form overlaid."""
     win_pct = _record_to_win_pct(record) if record else 0.5
 
+    # --- Primary stats source ---
+    stats = None
     if use_espn and team_id:
         espn_stats = ESPNDataProvider.fetch_team_stats(team_id)
         if espn_stats:
-            return _build_stats_dict(espn_stats, win_pct, is_home)
+            stats = _build_stats_dict(espn_stats, win_pct, is_home)
 
-    fb = TeamDatabase.lookup(team_name)
-    if fb:
-        return fb
+    if stats is None:
+        fb = TeamDatabase.lookup(team_name)
+        if fb:
+            stats = dict(fb)
 
-    # Last resort: generic NBA stats
-    return {
-        'ppg': 110, 'fg_pct': 46, '3p_pct': 35, 'ft_pct': 77,
-        'reb': 44, 'ast': 25, 'to': 14, 'stl': 7, 'blk': 5,
-        'win_pct': win_pct,
-        'home_win': min(1.0, win_pct + 0.08),
-        'away_win': max(0.0, win_pct - 0.05),
-        'pace': 100, 'off_rtg': 113, 'def_rtg': 113, 'form': 0.5,
-    }
+    if stats is None:
+        stats = {
+            'ppg': 110, 'fg_pct': 46, '3p_pct': 35, 'ft_pct': 77,
+            'reb': 44, 'ast': 25, 'to': 14, 'stl': 7, 'blk': 5,
+            'win_pct': win_pct,
+            'home_win': min(1.0, win_pct + 0.08),
+            'away_win': max(0.0, win_pct - 0.05),
+            'pace': 100, 'off_rtg': 113, 'def_rtg': 113, 'form': 0.5,
+        }
+
+    # --- Overlay real recent form (works regardless of which stats path was used) ---
+    if use_espn and team_id:
+        form_score, form_str = ESPNDataProvider.fetch_recent_form(team_id)
+        if form_score is not None:
+            stats['form'] = form_score
+        if form_str:
+            stats['form_str'] = form_str
+
+    return stats
 
 
 # ---------------------------------------------------------------------------
