@@ -17,6 +17,8 @@ from ncaa_model import (
     YahooSportsProvider,
     _build_stats_dict,
     _fmt_ml,
+    _get_yesterday_team_names,
+    _is_b2b,
     _resolve_team_stats,
     _spread_to_moneylines,
 )
@@ -345,9 +347,13 @@ def api_scan():
         source = "fallback"
 
     analyses = []
+    yesterday_teams = _get_yesterday_team_names()
     for game in games:
         if game.get("spread") is None and game.get("over_under") is None:
             continue
+
+        game["home_b2b"] = _is_b2b(game["home_team"], yesterday_teams)
+        game["away_b2b"] = _is_b2b(game["away_team"], yesterday_teams)
 
         home_stats = _resolve_team_stats(
             game["home_team"], game.get("home_id"),

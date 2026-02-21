@@ -63,7 +63,8 @@ ODDS_CACHE_TTL = 120  # 2 minutes for Odds API data (odds change faster)
 EDGE_THRESHOLD_SPREAD = 0.03   # 3% min edge for spread
 EDGE_THRESHOLD_ML = 0.03       # 3% min edge for moneyline
 MAX_ML_EDGE = 0.25             # 25% max edge — higher signals bad stats/model noise
-OU_POINTS_THRESHOLD = 3        # 3+ points for O/U
+OU_SCALE = 12.0                # logistic scale for O/U edge (≈1 SD in NCAAB total pts)
+B2B_PENALTY = 0.05             # win-prob shift for a team on a back-to-back
 
 BANKROLL_TIERS = [
     (0.10, "STRONG VALUE",   "3-5% of bankroll"),
@@ -1110,6 +1111,15 @@ class BettingAnalyzer:
         """Full three-market analysis for one game. Returns analysis dict."""
         features = self.build_feature_vector(home_stats, away_stats)
         home_win_prob = self.model.predict(features)
+
+        # Back-to-back penalty: shift win prob toward 0.5 for fatigued team
+        home_b2b = game.get("home_b2b", False)
+        away_b2b = game.get("away_b2b", False)
+        if home_b2b and not away_b2b:
+            home_win_prob = max(0.05, home_win_prob - B2B_PENALTY)
+        elif away_b2b and not home_b2b:
+            home_win_prob = min(0.95, home_win_prob + B2B_PENALTY)
+
         away_win_prob = 1 - home_win_prob
         predicted_margin = (home_win_prob - 0.5) * 20
 
@@ -1125,6 +1135,8 @@ class BettingAnalyzer:
             "away_win_prob": away_win_prob,
             "predicted_margin": predicted_margin,
             "confidence": abs(home_win_prob - 0.5) * 200,
+            "home_b2b": home_b2b,
+            "away_b2b": away_b2b,
             # Market results filled below
             "spread": None, "spread_edge": None, "spread_pick": None,
             "over_under": None, "predicted_total": None, "ou_edge": None, "ou_pick": None,
@@ -1165,10 +1177,14 @@ class BettingAnalyzer:
             pred_total = (home_stats['ppg'] + away_stats['ppg']) * pace_factor
             result["predicted_total"] = pred_total
             ou_diff = pred_total - ou_line
-            result["ou_edge"] = ou_diff
-            if abs(ou_diff) >= OU_POINTS_THRESHOLD:
+            result["ou_edge"] = ou_diff  # raw points diff for display
+            # Convert to probability edge via logistic (same approach as spread).
+            # OU_SCALE ≈ 1 SD of total-points variance in college basketball.
+            over_prob = 1 / (1 + np.exp(-ou_diff / OU_SCALE))
+            ou_prob_edge = abs(over_prob - 0.5)
+            if ou_prob_edge >= EDGE_THRESHOLD_SPREAD:
                 result["ou_pick"] = "OVER" if ou_diff > 0 else "UNDER"
-                edges.append(("O/U", abs(ou_diff) / 100, result["ou_pick"]))
+                edges.append(("O/U", ou_prob_edge, result["ou_pick"]))
 
         # --- Moneyline ---
         if game.get("home_ml") is not None and game.get("away_ml") is not None:
@@ -1420,10 +1436,19 @@ def run_auto_scan(args):
     analyzer = BettingAnalyzer(model)
     analyses = []
 
+    # Pre-fetch yesterday's teams for back-to-back detection
+    yesterday_teams = _get_yesterday_team_names()
+    if yesterday_teams:
+        print(f"  [B2B] {len(yesterday_teams)} teams played yesterday — checking for back-to-backs.\n")
+
     for game in games:
         # Skip games without odds
         if game.get("spread") is None and game.get("over_under") is None:
             continue
+
+        # Tag back-to-back games
+        game["home_b2b"] = _is_b2b(game["home_team"], yesterday_teams)
+        game["away_b2b"] = _is_b2b(game["away_team"], yesterday_teams)
 
         home_stats = _resolve_team_stats(
             game["home_team"], game.get("home_id"), game.get("home_record", ""), is_home=True,
@@ -1470,10 +1495,47 @@ def _print_all_analyses(analyses):
     for a in analyses:
         matchup = f"{a['away_team']} @ {a['home_team']}"
         mkt = a.get("best_market", "-") or "-"
-        edge_val = a["best_edge"] * 100 if a["best_market"] != "O/U" else (abs(a.get("ou_edge", 0)))
+        edge_val = a["best_edge"] * 100
         pick = a.get("best_pick", "PASS") or "PASS"
         print(f"  {matchup:<42} {mkt:<10} {edge_val:>7.1f}%  {pick}")
     print()
+
+
+_yesterday_teams_cache = None  # cached set of team names from yesterday
+
+
+def _get_yesterday_team_names():
+    """Return a set of team names that played yesterday (for B2B detection)."""
+    global _yesterday_teams_cache
+    if _yesterday_teams_cache is not None:
+        return _yesterday_teams_cache
+    from datetime import date, timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    try:
+        games = YahooSportsProvider.fetch_scoreboard(date=yesterday)
+    except Exception:
+        games = None
+    teams = set()
+    if games:
+        for g in games:
+            if g.get("home_team"):
+                teams.add(g["home_team"])
+            if g.get("away_team"):
+                teams.add(g["away_team"])
+    _yesterday_teams_cache = teams
+    return teams
+
+
+def _is_b2b(team_name, yesterday_teams):
+    """Return True if team_name appears in the set of teams that played yesterday."""
+    def norm(s):
+        return s.lower().replace(".", "").replace("'", "").strip()
+    t = norm(team_name)
+    for yt in yesterday_teams:
+        y = norm(yt)
+        if t == y or t in y or y in t:
+            return True
+    return False
 
 
 def _resolve_team_stats(team_name, team_id, record, is_home, use_espn=True):

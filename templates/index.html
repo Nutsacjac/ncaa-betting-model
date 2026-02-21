@@ -68,6 +68,7 @@
   .matchup .rank{color:#f0a030;font-size:.8rem;font-weight:400}
   .game-time{font-size:.75rem;color:#6b8399;background:#0f1923;padding:.25rem .6rem;border-radius:4px}
   .records{font-size:.75rem;color:#6b8399;margin-bottom:.8rem}
+  .b2b-badge{font-size:.68rem;font-weight:700;background:rgba(232,64,87,.2);color:#e84057;padding:.1rem .4rem;border-radius:3px;vertical-align:middle;margin-left:.3rem}
 
   /* Prob bar */
   .prob-bar-wrap{margin:.8rem 0}
@@ -877,6 +878,8 @@ function gameCard(g, highlight, showSave) {
 
   const homeRank = g.home_rank && g.home_rank <= 25 ? `<span class="rank">#${g.home_rank} </span>` : '';
   const awayRank = g.away_rank && g.away_rank <= 25 ? `<span class="rank">#${g.away_rank} </span>` : '';
+  const homeB2b = g.home_b2b ? '<span class="b2b-badge">B2B</span>' : '';
+  const awayB2b = g.away_b2b ? '<span class="b2b-badge">B2B</span>' : '';
 
   let markets = '';
 
@@ -893,7 +896,7 @@ function gameCard(g, highlight, showSave) {
   if (g.over_under !== null && g.over_under !== undefined) {
     const ouDiff = g.ou_edge !== null ? g.ou_edge : 0;
     const absOU = Math.abs(ouDiff).toFixed(1);
-    const edgeCls = Math.abs(ouDiff) >= 3 ? 'edge-green' : 'edge-neutral';
+    const edgeCls = g.ou_pick ? 'edge-green' : 'edge-neutral';
     const pick = g.ou_pick || 'No edge';
     const detail = g.predicted_total ? `Line ${g.over_under.toFixed(1)} | Pred ${g.predicted_total.toFixed(1)}` : g.over_under.toFixed(1);
     markets += marketRow('O/U', detail, pick, absOU + ' pts', edgeCls);
@@ -933,7 +936,7 @@ function gameCard(g, highlight, showSave) {
     <div class="card${highlight ? ' highlight' : ''}">
       ${saveIconHtml}
       <div class="card-header">
-        <div class="matchup">${awayRank}${esc(g.away_team)} <span style="color:#6b8399">@</span> ${homeRank}${esc(g.home_team)}</div>
+        <div class="matchup">${awayRank}${esc(g.away_team)}${awayB2b} <span style="color:#6b8399">@</span> ${homeRank}${esc(g.home_team)}${homeB2b}</div>
         <div class="game-time">${esc(g.time)}</div>
       </div>
       ${g.home_record || g.away_record ? `<div class="records">${esc(g.away_record)} / ${esc(g.home_record)}</div>` : ''}
