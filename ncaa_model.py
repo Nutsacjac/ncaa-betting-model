@@ -453,6 +453,56 @@ class ESPNDataProvider:
         }
 
     @staticmethod
+    def fetch_recent_form(team_id, n_games=5):
+        """Return (form_score, results_str) for a team's last n completed games.
+
+        form_score: 0.0-1.0 exponentially-weighted win rate, most recent = highest weight.
+        results_str: e.g. "WLWWW" oldest-to-newest.
+        Returns (None, None) on failure.
+        """
+        url = (
+            "https://site.api.espn.com/apis/site/v2/sports/basketball"
+            f"/mens-college-basketball/teams/{team_id}/schedule"
+        )
+        cache_key = f"form:{team_id}:{n_games}"
+        cached = ESPNDataProvider._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        data = ESPNDataProvider._request_with_retry(url)
+        if not data:
+            ESPNDataProvider._set_cache(cache_key, (None, None))
+            return None, None
+
+        results = []
+        for event in data.get("events", []):
+            try:
+                comp = event["competitions"][0]
+                if not comp.get("status", {}).get("type", {}).get("completed"):
+                    continue
+                for competitor in comp.get("competitors", []):
+                    if str(competitor.get("id")) == str(team_id):
+                        results.append(1 if competitor.get("winner") else 0)
+                        break
+            except (KeyError, IndexError):
+                continue
+
+        recent = results[-n_games:] if results else []
+        if not recent:
+            ESPNDataProvider._set_cache(cache_key, (None, None))
+            return None, None
+
+        # Exponential decay: most recent game carries the most weight
+        decay = 0.7
+        weights = [decay ** (len(recent) - 1 - i) for i in range(len(recent))]
+        form_score = round(sum(r * w for r, w in zip(recent, weights)) / sum(weights), 3)
+        results_str = "".join("W" if r else "L" for r in recent)
+
+        out = (form_score, results_str)
+        ESPNDataProvider._set_cache(cache_key, out)
+        return out
+
+    @staticmethod
     def search_team(name):
         """Search ESPN for a team by name. Returns (team_id, display_name) or None."""
         url = (
@@ -1287,6 +1337,8 @@ class BettingAnalyzer:
             "away_b2b": away_b2b,
             "home_conference": home_stats.get("conference"),
             "away_conference": away_stats.get("conference"),
+            "home_form_str": home_stats.get("form_str"),
+            "away_form_str": away_stats.get("form_str"),
             # Market results filled below
             "spread": None, "spread_edge": None, "spread_pick": None,
             "over_under": None, "predicted_total": None, "ou_edge": None, "ou_pick": None,
@@ -1755,36 +1807,41 @@ def _apply_conference_adjustment(stats, conf_strength):
 
 
 def _resolve_team_stats(team_name, team_id, record, is_home, use_espn=True):
-    """Try ESPN stats, then fallback database, with conference strength applied."""
+    """Resolve team stats with conference strength + recent form applied."""
     win_pct = _record_to_win_pct(record) if record else 0.5
     conf_name, conf_strength = _get_conference(team_name, team_id if use_espn else None)
 
-    # Try ESPN
+    # --- Primary stats source ---
+    stats = None
     if use_espn and team_id:
         espn_stats = ESPNDataProvider.fetch_team_stats(team_id)
         if espn_stats:
             stats = _build_stats_dict(espn_stats, win_pct, is_home)
-            _apply_conference_adjustment(stats, conf_strength)
-            stats['conference'] = conf_name
-            return stats
 
-    # Fallback to hardcoded DB
-    fb = TeamDatabase.lookup(team_name)
-    if fb:
-        stats = dict(fb)
-        _apply_conference_adjustment(stats, conf_strength)
-        stats['conference'] = conf_name
-        return stats
+    if stats is None:
+        fb = TeamDatabase.lookup(team_name)
+        if fb:
+            stats = dict(fb)
 
-    # Last resort: generic stats
-    stats = {
-        'ppg': 72, 'fg_pct': 44, '3p_pct': 33, 'ft_pct': 70,
-        'reb': 35, 'ast': 13, 'to': 13, 'stl': 6, 'blk': 3,
-        'win_pct': win_pct,
-        'home_win': min(1.0, win_pct + 0.08),
-        'away_win': max(0.0, win_pct - 0.05),
-        'pace': 68, 'off_rtg': 105, 'def_rtg': 102, 'form': 0.5,
-    }
+    if stats is None:
+        stats = {
+            'ppg': 72, 'fg_pct': 44, '3p_pct': 33, 'ft_pct': 70,
+            'reb': 35, 'ast': 13, 'to': 13, 'stl': 6, 'blk': 3,
+            'win_pct': win_pct,
+            'home_win': min(1.0, win_pct + 0.08),
+            'away_win': max(0.0, win_pct - 0.05),
+            'pace': 68, 'off_rtg': 105, 'def_rtg': 102, 'form': 0.5,
+        }
+
+    # --- Overlay real recent form (works regardless of which stats path was used) ---
+    if use_espn and team_id:
+        form_score, form_str = ESPNDataProvider.fetch_recent_form(team_id)
+        if form_score is not None:
+            stats['form'] = form_score
+        if form_str:
+            stats['form_str'] = form_str
+
+    # --- Conference strength adjustment (applied last, affects form too) ---
     _apply_conference_adjustment(stats, conf_strength)
     stats['conference'] = conf_name
     return stats
